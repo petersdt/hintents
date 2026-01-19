@@ -1,4 +1,4 @@
-# Erst
+# Erst By Hintents
 
 **Erst** is a specialized developer tool for the Stellar network, designed to solve the "black box" debugging experience on Soroban.
 
