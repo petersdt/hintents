@@ -67,14 +67,20 @@ fn main() {
 
     eprintln!("Successfully parsed Envelope and ResultMeta!");
 
-    // TODO: Initialize Host and Populate Storage using 'result_meta'
+    // Initialize Host
+    let host = soroban_env_host::Host::default();
+    
+    // Enable debug mode for diagnostics
+    // Note: In newer versions of soroban-env-host, diagnostics might be on by default or configured via budget/config.
+    // We will ensure at least the structure is ready for Issue 6 (Storage) and Issue 8 (Diagnostics).
+    host.set_diagnostic_level(soroban_env_host::DiagnosticLevel::Debug).unwrap();
 
     // Mock Success Response
     let response = SimulationResponse {
         status: "success".to_string(),
         error: None,
         events: vec![format!("Parsed Envelope: {:?}", envelope)],
-        logs: vec!["Host Initialized".to_string()],
+        logs: vec![format!("Host Initialized with Budget: {:?}", host.budget_cloned())],
     };
 
     println!("{}", serde_json::to_string(&response).unwrap());
