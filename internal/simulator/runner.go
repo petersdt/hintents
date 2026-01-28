@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/dotandev/hintents/internal/errors"
 	"github.com/dotandev/hintents/internal/logger"
 )
 
@@ -44,7 +45,7 @@ func NewRunner() (*Runner, error) {
 		return &Runner{BinaryPath: path}, nil
 	}
 
-	return nil, fmt.Errorf("simulator binary 'erst-sim' not found. Please build it or set ERST_SIMULATOR_PATH")
+	return nil, errors.WrapSimulatorNotFound("Please build it or set ERST_SIMULATOR_PATH")
 }
 
 // Run executes the simulation with the given request
@@ -55,7 +56,7 @@ func (r *Runner) Run(req *SimulationRequest) (*SimulationResponse, error) {
 	inputBytes, err := json.Marshal(req)
 	if err != nil {
 		logger.Logger.Error("Failed to marshal simulation request", "error", err)
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, errors.WrapMarshalFailed(err)
 	}
 
 	logger.Logger.Debug("Simulation request marshaled", "input_size", len(inputBytes))
@@ -71,7 +72,7 @@ func (r *Runner) Run(req *SimulationRequest) (*SimulationResponse, error) {
 	logger.Logger.Info("Executing simulator binary")
 	if err := cmd.Run(); err != nil {
 		logger.Logger.Error("Simulator execution failed", "error", err, "stderr", stderr.String())
-		return nil, fmt.Errorf("simulator execution failed: %w, stderr: %s", err, stderr.String())
+		return nil, errors.WrapSimulationFailed(err, stderr.String())
 	}
 
 	logger.Logger.Debug("Simulator execution completed", "stdout_size", stdout.Len(), "stderr_size", stderr.Len())
@@ -80,7 +81,7 @@ func (r *Runner) Run(req *SimulationRequest) (*SimulationResponse, error) {
 	var resp SimulationResponse
 	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
 		logger.Logger.Error("Failed to unmarshal simulation response", "error", err, "output", stdout.String())
-		return nil, fmt.Errorf("failed to unmarshal response: %w, output: %s", err, stdout.String())
+		return nil, errors.WrapUnmarshalFailed(err, stdout.String())
 	}
 
 	logger.Logger.Info("Simulation response received", "status", resp.Status)
@@ -88,7 +89,7 @@ func (r *Runner) Run(req *SimulationRequest) (*SimulationResponse, error) {
 	// Check logic error from simulator
 	if resp.Status == "error" {
 		logger.Logger.Error("Simulation logic error", "error", resp.Error)
-		return nil, fmt.Errorf("simulation error: %s", resp.Error)
+		return nil, errors.WrapSimulationLogicError(resp.Error)
 	}
 
 	logger.Logger.Info("Simulation completed successfully")
