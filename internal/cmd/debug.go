@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
 
 	"github.com/dotandev/hintents/internal/rpc"
+	"github.com/dotandev/hintents/internal/simulator"
 	"github.com/spf13/cobra"
 )
 
@@ -26,12 +29,38 @@ Example:
 		fmt.Printf("Using network: %s\n", NetworkFlag)
 		fmt.Printf("Horizon URL: %s\n", client.Horizon.HorizonURL)
 
-		// Fetch transaction (context would be provided by actual implementation)
-		// txResp, err := client.GetTransaction(context.Background(), txHash)
-		// if err != nil {
-		// 	return err
-		// }
-		// fmt.Printf("Transaction found with envelope XDR size: %d bytes\n", len(txResp.EnvelopeXdr))
+		// Fetch transaction
+		txResp, err := client.GetTransaction(context.Background(), txHash)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Transaction found with envelope XDR size: %d bytes\n", len(txResp.EnvelopeXdr))
+
+		// Run simulation
+		simRunner, err := simulator.NewRunner()
+		if err != nil {
+			return err
+		}
+
+		simReq := &simulator.SimulationRequest{
+			EnvelopeXdr:   txResp.EnvelopeXdr,
+			ResultMetaXdr: txResp.ResultMetaXdr,
+			Profile:       ProfileFlag,
+		}
+
+		simResp, err := simRunner.Run(simReq)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("Simulation successful!")
+		if simResp.Flamegraph != "" {
+			err := os.WriteFile("profile.svg", []byte(simResp.Flamegraph), 0644)
+			if err != nil {
+				return fmt.Errorf("failed to save flamegraph: %w", err)
+			}
+			fmt.Println("Flamegraph saved to profile.svg")
+		}
 
 		return nil
 	},
