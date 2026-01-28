@@ -6,8 +6,10 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/dotandev/hintents/internal/db"
 	"github.com/dotandev/hintents/internal/errors"
 	"github.com/dotandev/hintents/internal/rpc"
+	"github.com/dotandev/hintents/internal/simulator"
 	"github.com/spf13/cobra"
 )
 
@@ -56,6 +58,55 @@ Example:
 		}
 
 		fmt.Printf("Transaction fetched successfully. Envelope size: %d bytes\n", len(resp.EnvelopeXdr))
+
+		// Initialize Simulator
+		runner, err := simulator.NewRunner()
+		if err != nil {
+			return fmt.Errorf("failed to initialize simulator: %w", err)
+		}
+
+		// Run Simulation
+		simReq := &simulator.SimulationRequest{
+			EnvelopeXdr:   resp.EnvelopeXdr,
+			ResultMetaXdr: resp.ResultMetaXdr,
+		}
+
+		simResp, err := runner.Run(simReq)
+		if err != nil {
+			return fmt.Errorf("simulation failed: %w", err)
+		}
+
+		// Save to DB
+		store, err := db.InitDB()
+		if err != nil {
+			fmt.Printf("Warning: failed to initialize session history DB: %v\n", err)
+		} else {
+			session := &db.Session{
+				TxHash:   txHash,
+				Network:  networkFlag,
+				Status:   simResp.Status,
+				ErrorMsg: simResp.Error,
+				Events:   simResp.Events,
+				Logs:     simResp.Logs,
+			}
+			if err := store.SaveSession(session); err != nil {
+				fmt.Printf("Warning: failed to save session to history: %v\n", err)
+			} else {
+				fmt.Println("Session saved to history.")
+			}
+		}
+
+		fmt.Printf("Simulation Status: %s\n", simResp.Status)
+		if simResp.Error != "" {
+			fmt.Printf("Error: %s\n", simResp.Error)
+		}
+		if len(simResp.Events) > 0 {
+			fmt.Println("Diagnostic Events:")
+			for _, e := range simResp.Events {
+				fmt.Printf(" - %s\n", e)
+			}
+		}
+
 		return nil
 	},
 }
