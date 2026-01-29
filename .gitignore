@@ -1,5 +1,6 @@
 # --- Compiled binaries/libraries ---
 /erst
+*.exe
 /simulator/target/
 node_modules/
 dist/
