@@ -13,6 +13,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/dotandev/hintents/internal/db"
+	"github.com/dotandev/hintents/internal/errors"
+	"github.com/dotandev/hintents/internal/localization"
 	"github.com/dotandev/hintents/internal/logger"
 	"github.com/dotandev/hintents/internal/rpc"
 	"github.com/dotandev/hintents/internal/simulator"
@@ -122,6 +125,9 @@ func (d *DebugCommand) runDebug(cmd *cobra.Command, args []string) error {
 
 var debugCmd = &cobra.Command{
 	Use:   "debug <transaction-hash>",
+	Short: localization.Get("cli.debug.short"),
+	Long:  localization.Get("cli.debug.long"),
+	Args:  cobra.ExactArgs(1),
 	Short: "Debug a failed Soroban transaction",
 	Long: `Fetch and simulate a Soroban transaction to debug failures and analyze execution.
 
@@ -177,6 +183,17 @@ The simulation results are stored in a session that can be saved for later analy
 		ctx := cmd.Context()
 		txHash := args[0]
 
+		client := rpc.NewClient(rpc.Network(networkFlag))
+		if rpcURLFlag != "" {
+			client = rpc.NewClientWithURL(rpcURLFlag, rpc.Network(networkFlag))
+		}
+
+		resp, err := client.GetTransaction(cmd.Context(), txHash)
+		if err != nil {
+			return fmt.Errorf(localization.Get("error.fetch_transaction"), err)
+		}
+
+		fmt.Printf(localization.Get("output.transaction_envelope")+"\n", len(resp.EnvelopeXdr))
 		// Initialize OpenTelemetry if enabled
 		var cleanup func()
 		if tracingEnabled {
@@ -674,6 +691,8 @@ func getErstVersion() string {
 }
 
 func init() {
+	debugCmd.Flags().StringVarP(&networkFlag, "network", "n", string(rpc.Mainnet), localization.Get("cli.debug.flag.network"))
+	debugCmd.Flags().StringVar(&rpcURLFlag, "rpc-url", "", localization.Get("cli.debug.flag.rpc_url"))
 	debugCmd.Flags().StringVarP(&networkFlag, "network", "n", string(rpc.Mainnet), "Stellar network to use (testnet, mainnet, futurenet)")
 	debugCmd.Flags().StringVar(&rpcURLFlag, "rpc-url", "", "Custom Horizon RPC URL to use")
 	debugCmd.Flags().BoolVar(&tracingEnabled, "tracing", false, "Enable OpenTelemetry tracing")
