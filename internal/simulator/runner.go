@@ -130,18 +130,25 @@ func abs(path string) string {
 
 // -------------------- Execution --------------------
 
-// Run executes the simulation with the given request
 func (r *Runner) Run(req *SimulationRequest) (*SimulationResponse, error) {
-	logger.Logger.Debug("Starting simulation", "binary", r.BinaryPath)
+	proto := GetOrDefault(req.ProtocolVersion)
 
-	// Serialize Request
+	if req.ProtocolVersion != nil {
+		if err := Validate(*req.ProtocolVersion); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := r.applyProtocolConfig(req, proto); err != nil {
+		return nil, err
+	}
+
 	inputBytes, err := json.Marshal(req)
 	if err != nil {
 		logger.Logger.Error("Failed to marshal simulation request", "error", err)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Prepare Command
 	cmd := exec.Command(r.BinaryPath)
 	cmd.Stdin = bytes.NewReader(inputBytes)
 
@@ -149,34 +156,46 @@ func (r *Runner) Run(req *SimulationRequest) (*SimulationResponse, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	logger.Logger.Info("Executing simulator binary")
-
 	if err := cmd.Run(); err != nil {
-		logger.Logger.Error(
-			"Simulator execution failed",
-			"error", err,
-			"stderr", stderr.String(),
-		)
+		logger.Logger.Error("Simulator execution failed", "error", err, "stderr", stderr.String())
 		return nil, fmt.Errorf("simulator execution failed: %w, stderr: %s", err, stderr.String())
 	}
 
-	// Deserialize Response
 	var resp SimulationResponse
 	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
-		logger.Logger.Error(
-			"Failed to unmarshal simulation response",
-			"error", err,
-			"output", stdout.String(),
-		)
+		logger.Logger.Error("Failed to unmarshal response", "error", err)
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
+	resp.ProtocolVersion = proto.Version
+
 	if resp.Status == "error" {
-		logger.Logger.Error("Simulation logic error", "error", resp.Error)
 		return nil, fmt.Errorf("simulation error: %s", resp.Error)
 	}
 
-	logger.Logger.Info("Simulation completed successfully")
-
 	return &resp, nil
+}
+
+func (r *Runner) applyProtocolConfig(req *SimulationRequest, proto *Protocol) error {
+	if req.CustomAuthCfg == nil {
+		req.CustomAuthCfg = make(map[string]interface{})
+	}
+
+	limits := make(map[string]interface{})
+	for k, v := range proto.Features {
+		switch k {
+		case "max_contract_size", "max_contract_data_size", "max_instruction_limit":
+			limits[k] = v
+		}
+	}
+
+	if len(limits) > 0 {
+		req.CustomAuthCfg["protocol_limits"] = limits
+	}
+
+	if opcodes, ok := proto.Features["supported_opcodes"].([]string); ok {
+		req.CustomAuthCfg["supported_opcodes"] = opcodes
+	}
+
+	return nil
 }

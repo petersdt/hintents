@@ -26,21 +26,16 @@ import (
 
 // SimulationRequest is the JSON object passed to the Rust binary via Stdin
 type SimulationRequest struct {
-	EnvelopeXdr   string            `json:"envelope_xdr"`
-	ResultMetaXdr string            `json:"result_meta_xdr"`
-	LedgerEntries map[string]string `json:"ledger_entries,omitempty"`
-	// Override timestamp
-	Timestamp int64 `json:"timestamp,omitempty"`
-	// Override ledger sequence
-	LedgerSequence uint32 `json:"ledger_sequence,omitempty"`
-	// Path to local WASM file for local replay (optional)
-	WasmPath *string `json:"wasm_path,omitempty"`
-	// Mock arguments for local replay (optional, JSON array of strings)
-	MockArgs *[]string `json:"mock_args,omitempty"`
-	// Enable profiling
-	Profile bool `json:"profile,omitempty"`
+	EnvelopeXdr    string            `json:"envelope_xdr"`
+	ResultMetaXdr  string            `json:"result_meta_xdr"`
+	LedgerEntries  map[string]string `json:"ledger_entries,omitempty"`
+	Timestamp      int64             `json:"timestamp,omitempty"`
+	LedgerSequence uint32            `json:"ledger_sequence,omitempty"`
+	WasmPath       *string           `json:"wasm_path,omitempty"`
+	MockArgs       *[]string         `json:"mock_args,omitempty"`
+	Profile        bool              `json:"profile,omitempty"`
+	ProtocolVersion *uint32          `json:"protocol_version,omitempty"`
 
-	// Advanced options
 	AuthTraceOpts *AuthTraceOptions      `json:"auth_trace_opts,omitempty"`
 	CustomAuthCfg map[string]interface{} `json:"custom_auth_config,omitempty"`
 }
@@ -68,14 +63,15 @@ type SecurityViolation struct {
 }
 
 type SimulationResponse struct {
-	Status             string               `json:"status"` // "success" or "error"
+	Status             string               `json:"status"`
 	Error              string               `json:"error,omitempty"`
 	Events             []string             `json:"events,omitempty"`
 	CategorizedEvents  []CategorizedEvent   `json:"categorized_events,omitempty"`
 	Logs               []string             `json:"logs,omitempty"`
 	SecurityViolations []SecurityViolation  `json:"security_violations,omitempty"`
-	Flamegraph         string               `json:"flamegraph,omitempty"` // SVG flamegraph
+	Flamegraph         string               `json:"flamegraph,omitempty"`
 	AuthTrace          *authtrace.AuthTrace `json:"auth_trace,omitempty"`
+	ProtocolVersion    uint32               `json:"protocol_version"`
 }
 
 // Session represents a stored simulation result

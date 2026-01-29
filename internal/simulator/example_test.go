@@ -22,26 +22,22 @@ import (
 
 // ExampleSimulationRequestBuilder demonstrates basic usage of the builder pattern.
 func ExampleSimulationRequestBuilder() {
-	// Create a simulation request using the builder
 	req, err := simulator.NewSimulationRequestBuilder().
 		WithEnvelopeXDR("AAAAAgAAAACE...").
 		WithResultMetaXDR("AAAAAQAAAAA...").
 		Build()
 
 	if err != nil {
-		fmt.Printf("Error: %v
-", err)
+		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Request created with envelope XDR length: %d
-", len(req.EnvelopeXdr))
+	fmt.Printf("Request created with envelope XDR length: %d\n", len(req.EnvelopeXdr))
 	// Output: Request created with envelope XDR length: 15
 }
 
 // ExampleSimulationRequestBuilder_withLedgerEntries demonstrates adding ledger entries.
 func ExampleSimulationRequestBuilder_withLedgerEntries() {
-	// Create a simulation request with ledger entries
 	req, err := simulator.NewSimulationRequestBuilder().
 		WithEnvelopeXDR("AAAAAgAAAACE...").
 		WithResultMetaXDR("AAAAAQAAAAA...").
@@ -50,13 +46,11 @@ func ExampleSimulationRequestBuilder_withLedgerEntries() {
 		Build()
 
 	if err != nil {
-		fmt.Printf("Error: %v
-", err)
+		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Request created with %d ledger entries
-", len(req.LedgerEntries))
+	fmt.Printf("Request created with %d ledger entries\n", len(req.LedgerEntries))
 	// Output: Request created with 2 ledger entries
 }
 
@@ -75,19 +69,16 @@ func ExampleSimulationRequestBuilder_bulkLedgerEntries() {
 		Build()
 
 	if err != nil {
-		fmt.Printf("Error: %v
-", err)
+		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	fmt.Printf("Request created with %d ledger entries
-", len(req.LedgerEntries))
+	fmt.Printf("Request created with %d ledger entries\n", len(req.LedgerEntries))
 	// Output: Request created with 3 ledger entries
 }
 
 // ExampleSimulationRequestBuilder_validation demonstrates validation errors.
 func ExampleSimulationRequestBuilder_validation() {
-	// Try to build without required fields
 	_, err := simulator.NewSimulationRequestBuilder().
 		WithEnvelopeXDR("AAAAAgAAAACE...").
 		Build()
@@ -102,24 +93,20 @@ func ExampleSimulationRequestBuilder_validation() {
 func ExampleSimulationRequestBuilder_reuse() {
 	builder := simulator.NewSimulationRequestBuilder()
 
-	// Build first request
 	req1, _ := builder.
 		WithEnvelopeXDR("envelope1").
 		WithResultMetaXDR("result1").
 		Build()
 
-	fmt.Printf("First request envelope: %s
-", req1.EnvelopeXdr)
+	fmt.Printf("First request envelope: %s\n", req1.EnvelopeXdr)
 
-	// Reset and build second request
 	req2, _ := builder.
 		Reset().
 		WithEnvelopeXDR("envelope2").
 		WithResultMetaXDR("result2").
 		Build()
 
-	fmt.Printf("Second request envelope: %s
-", req2.EnvelopeXdr)
+	fmt.Printf("Second request envelope: %s\n", req2.EnvelopeXdr)
 	// Output:
 	// First request envelope: envelope1
 	// Second request envelope: envelope2

@@ -22,7 +22,7 @@ type RunnerInterface interface {
 // NewRunnerInterface creates a RunnerInterface implementation
 // This allows for easy swapping between real and mock implementations
 func NewRunnerInterface() (RunnerInterface, error) {
-	return NewRunner()
+	return NewRunner("", false)
 }
 
 // ExampleUsage of how commands can accept the interface
