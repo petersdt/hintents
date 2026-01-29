@@ -281,10 +281,6 @@ func (c *Client) GetLedgerEntries(ctx context.Context, keys []string) (map[strin
 		entries[entry.Key] = entry.Xdr
 	}
 
-	// For keys that were not found, Soroban RPC simply omits them from the result (or returns null? verify behavior).
-	// getLedgerEntries returns entries for keys that exist. Missing keys are just not in the list.
-	// We return what we found.
-
 	logger.Logger.Info("Ledger entries fetched successfully", "found", len(entries), "requested", len(keys))
 
 	return entries, nil
