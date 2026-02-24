@@ -133,6 +133,25 @@ We are building this open-source to help the entire Stellar community.
 
 ### Getting Started
 
+#### Option 1: Using Docker (Recommended)
+
+The easiest way to get started is using Docker, which includes both the Go CLI and Rust simulator:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/dotandev/hintents:latest
+
+# Run erst
+docker run --rm ghcr.io/dotandev/hintents:latest --help
+
+# Debug a transaction
+docker run --rm ghcr.io/dotandev/hintents:latest debug <transaction-hash> --network testnet
+```
+
+Docker images are available for both `amd64` and `arm64` architectures. See [docs/DOCKER.md](docs/DOCKER.md) for detailed Docker usage.
+
+#### Option 2: Build from Source
+
 1.  Clone the repo:
     ```bash
     git clone https://github.com/dotandev/hintents.git
@@ -144,7 +163,11 @@ We are building this open-source to help the entire Stellar community.
     cargo build --release
     cd ..
     ```
-3.  Run tests:
+3.  Build the Go CLI:
+    ```bash
+    go build -o erst cmd/erst/main.go
+    ```
+4.  Run tests:
     ```bash
     go test ./...
     ```

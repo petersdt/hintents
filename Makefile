@@ -1,6 +1,7 @@
 .PHONY: build test lint lint-unused test-unused validate-ci validate-interface clean
 .PHONY: build test lint lint-unused test-unused validate-ci clean
 .PHONY: build test lint validate-errors clean bench bench-rpc bench-sim bench-profile
+.PHONY: docker-build docker-build-multiarch docker-test docker-push
 
 # Build variables
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -72,3 +73,18 @@ bench-sim:
 # Run benchmarks with CPU profiling
 bench-profile:
 	go test -bench=. -benchmem -cpuprofile=cpu.prof ./internal/rpc ./internal/simulator
+
+# Docker targets
+docker-build:
+	docker build -t erst:local .
+
+docker-build-multiarch:
+	docker buildx build --platform linux/amd64,linux/arm64 -t erst:multiarch .
+
+docker-test:
+	./test_docker_build.sh
+
+docker-push:
+	@echo "Use GitHub Actions workflow for pushing to registry"
+	@echo "Or manually: docker push <registry>/erst:<tag>"
+
