@@ -79,33 +79,39 @@ type palette struct {
 	summaryVal  *color.Color
 }
 
-func newPalette(noColor bool) palette {
+func newColor(noColor bool, attrs ...color.Attribute) *color.Color {
+	c := color.New(attrs...)
 	if noColor {
-		color.NoColor = true
+		c.DisableColor()
 	}
-	nop := color.New() // no attributes → plain text
+	return c
+}
+
+func newPalette(noColor bool) palette {
+	// Create a "no-op" colour (plain text), still respecting the noColor flag.
+	nop := newColor(noColor) // no attributes → plain text
 	return palette{
-		header:      color.New(color.FgWhite, color.Bold),
-		separator:   color.New(color.FgHiBlack),
-		txRoot:      color.New(color.FgWhite, color.Bold),
-		contractFn:  color.New(color.FgCyan, color.Bold),
-		hostFn:      color.New(color.FgGreen),
-		authFn:      color.New(color.FgMagenta),
-		eventFn:     color.New(color.FgYellow),
-		errorFn:     color.New(color.FgRed, color.Bold),
-		logFn:       color.New(color.FgBlue),
-		trapFn:      color.New(color.FgRed, color.Bold, color.Underline),
+		header:      newColor(noColor, color.FgWhite, color.Bold),
+		separator:   newColor(noColor, color.FgHiBlack),
+		txRoot:      newColor(noColor, color.FgWhite, color.Bold),
+		contractFn:  newColor(noColor, color.FgCyan, color.Bold),
+		hostFn:      newColor(noColor, color.FgGreen),
+		authFn:      newColor(noColor, color.FgMagenta),
+		eventFn:     newColor(noColor, color.FgYellow),
+		errorFn:     newColor(noColor, color.FgRed, color.Bold),
+		logFn:       newColor(noColor, color.FgBlue),
+		trapFn:      newColor(noColor, color.FgRed, color.Bold, color.Underline),
 		otherFn:     nop,
-		dimmed:      color.New(color.FgHiBlack),
-		returnVal:   color.New(color.FgGreen),
-		errorMsg:    color.New(color.FgRed),
-		budgetLabel: color.New(color.FgHiBlack),
-		budgetVal:   color.New(color.FgHiWhite),
-		stepNum:     color.New(color.FgHiBlack),
-		opLabel:     color.New(color.FgHiWhite),
-		contractID:  color.New(color.FgHiBlack),
-		summaryKey:  color.New(color.FgHiBlack),
-		summaryVal:  color.New(color.FgWhite, color.Bold),
+		dimmed:      newColor(noColor, color.FgHiBlack),
+		returnVal:   newColor(noColor, color.FgGreen),
+		errorMsg:    newColor(noColor, color.FgRed),
+		budgetLabel: newColor(noColor, color.FgHiBlack),
+		budgetVal:   newColor(noColor, color.FgHiWhite),
+		stepNum:     newColor(noColor, color.FgHiBlack),
+		opLabel:     newColor(noColor, color.FgHiWhite),
+		contractID:  newColor(noColor, color.FgHiBlack),
+		summaryKey:  newColor(noColor, color.FgHiBlack),
+		summaryVal:  newColor(noColor, color.FgWhite, color.Bold),
 	}
 }
 
