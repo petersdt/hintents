@@ -14,3 +14,4 @@ tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 inferno = "0.11"
 jsonschema = "0.40.2"
 object = "0.38.1"
+hex = "0.4.3"
