@@ -164,15 +164,17 @@ network = "testnet"`,
 			"TOML with all fields",
 			`rpc_url = "https://custom.com"
 network = "futurenet"
+network_passphrase = "Test SDF Future Network ; October 2022"
 simulator_path = "/path/to/sim"
 log_level = "debug"
 cache_path = "/custom/cache"`,
 			&Config{
-				RpcUrl:        "https://custom.com",
-				Network:       NetworkFuturenet,
-				SimulatorPath: "/path/to/sim",
-				LogLevel:      "debug",
-				CachePath:     "/custom/cache",
+				RpcUrl:            "https://custom.com",
+				Network:           NetworkFuturenet,
+				NetworkPassphrase: "Test SDF Future Network ; October 2022",
+				SimulatorPath:     "/path/to/sim",
+				LogLevel:          "debug",
+				CachePath:         "/custom/cache",
 			},
 		},
 		{
@@ -217,6 +219,10 @@ network = "testnet"`,
 
 			if cfg.Network != tt.want.Network {
 				t.Errorf("Network: expected %s, got %s", tt.want.Network, cfg.Network)
+			}
+
+			if cfg.NetworkPassphrase != tt.want.NetworkPassphrase {
+				t.Errorf("NetworkPassphrase: expected %s, got %s", tt.want.NetworkPassphrase, cfg.NetworkPassphrase)
 			}
 
 			if cfg.SimulatorPath != tt.want.SimulatorPath {
@@ -265,6 +271,31 @@ func TestLoadFromEnvironment(t *testing.T) {
 
 	if cfg.LogLevel != "debug" {
 		t.Errorf("expected LogLevel from env, got %s", cfg.LogLevel)
+	}
+}
+
+func TestGetEnv_RequiresErstPrefix(t *testing.T) {
+	// Ensure non-ERST env keys are ignored by getEnv
+	origStellar := os.Getenv("STELLAR_RPC_URL")
+	origErst := os.Getenv("ERST_RPC_URL")
+	defer func() {
+		os.Setenv("STELLAR_RPC_URL", origStellar)
+		os.Setenv("ERST_RPC_URL", origErst)
+	}()
+
+	os.Setenv("STELLAR_RPC_URL", "https://stellar.example.com")
+	os.Unsetenv("ERST_RPC_URL")
+
+	// getEnv should return the default when asked for non-ERST key
+	def := "https://default.example.com"
+	if got := getEnv("STELLAR_RPC_URL", def); got != def {
+		t.Errorf("expected getEnv to return default for non-ERST key, got %s", got)
+	}
+
+	// But should return value for ERST_ key
+	os.Setenv("ERST_RPC_URL", "https://erst.example.com")
+	if got := getEnv("ERST_RPC_URL", def); got != "https://erst.example.com" {
+		t.Errorf("expected getEnv to read ERST_ env var, got %s", got)
 	}
 }
 
@@ -445,5 +476,142 @@ func TestLoad_CrashReportingOffByDefault(t *testing.T) {
 
 	if cfg.CrashReporting {
 		t.Error("CrashReporting should be off by default")
+	}
+}
+
+// ---- RequestTimeout config --------------------------------------------------
+
+func TestDefaultConfig_RequestTimeout(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.RequestTimeout != 15 {
+		t.Errorf("expected default RequestTimeout=15, got %d", cfg.RequestTimeout)
+	}
+}
+
+func TestLoad_RequestTimeoutFromEnv(t *testing.T) {
+	orig := os.Getenv("ERST_REQUEST_TIMEOUT")
+	defer os.Setenv("ERST_REQUEST_TIMEOUT", orig)
+
+	os.Setenv("ERST_REQUEST_TIMEOUT", "30")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RequestTimeout != 30 {
+		t.Errorf("expected RequestTimeout=30 from env, got %d", cfg.RequestTimeout)
+	}
+}
+
+func TestLoad_RequestTimeoutInvalidEnvIgnored(t *testing.T) {
+	orig := os.Getenv("ERST_REQUEST_TIMEOUT")
+	defer os.Setenv("ERST_REQUEST_TIMEOUT", orig)
+
+	os.Setenv("ERST_REQUEST_TIMEOUT", "notanumber")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid ERST_REQUEST_TIMEOUT value")
+	}
+}
+
+func TestLoad_RequestTimeoutZeroEnvIgnored(t *testing.T) {
+	orig := os.Getenv("ERST_REQUEST_TIMEOUT")
+	defer os.Setenv("ERST_REQUEST_TIMEOUT", orig)
+
+	os.Setenv("ERST_REQUEST_TIMEOUT", "0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RequestTimeout != 15 {
+		t.Errorf("expected default RequestTimeout=15 for zero env value, got %d", cfg.RequestTimeout)
+	}
+}
+
+func TestParseTOML_RequestTimeout(t *testing.T) {
+	content := `rpc_url = "https://test.com"
+network = "testnet"
+request_timeout = 60`
+
+	cfg := &Config{}
+	if err := cfg.parseTOML(content); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RequestTimeout != 60 {
+		t.Errorf("expected RequestTimeout=60 from TOML, got %d", cfg.RequestTimeout)
+	}
+}
+
+func TestParseTOML_RequestTimeoutInvalidIgnored(t *testing.T) {
+	content := `rpc_url = "https://test.com"
+request_timeout = -5`
+
+	cfg := &Config{}
+	if err := cfg.parseTOML(content); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.RequestTimeout != -5 {
+		t.Errorf("expected RequestTimeout to parse raw value, got %d", cfg.RequestTimeout)
+	}
+}
+
+func TestValidators_MissingFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		validator Validator
+		cfg       *Config
+		wantErr   bool
+	}{
+		{name: "missing rpc_url", validator: RequiredFieldsValidator{}, cfg: &Config{}, wantErr: true},
+		{name: "present rpc_url", validator: RequiredFieldsValidator{}, cfg: &Config{RpcUrl: "https://ok"}, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.validator.Validate(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestParseTOML_InvalidTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "request_timeout invalid type", content: `request_timeout = "abc"`},
+		{name: "crash_reporting invalid type", content: `crash_reporting = "maybe"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{}
+			if err := cfg.parseTOML(tt.content); err == nil {
+				t.Fatal("expected parse error")
+			}
+		})
+	}
+}
+
+func TestRequestTimeout_OutOfBounds(t *testing.T) {
+	tests := []int{-1, 301}
+	for _, timeout := range tests {
+		t.Run("timeout", func(t *testing.T) {
+			cfg := NewConfig("https://test.com", NetworkTestnet).WithRequestTimeout(timeout)
+			if err := (RequestTimeoutValidator{}).Validate(cfg); err == nil {
+				t.Fatalf("expected out-of-bounds error for %d", timeout)
+			}
+		})
+	}
+}
+
+func TestWithRequestTimeout(t *testing.T) {
+	cfg := NewConfig("https://test.com", NetworkTestnet).WithRequestTimeout(45)
+	if cfg.RequestTimeout != 45 {
+		t.Errorf("expected RequestTimeout=45, got %d", cfg.RequestTimeout)
 	}
 }

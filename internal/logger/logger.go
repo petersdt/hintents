@@ -24,18 +24,45 @@ func init() {
 }
 
 func parseLevelFromEnv() slog.Level {
-	env := strings.ToUpper(os.Getenv("ERST_LOG_LEVEL"))
-	switch env {
-	case "DEBUG":
+	return ParseLogLevel(os.Getenv("ERST_LOG_LEVEL"))
+}
+
+// ParseLogLevel converts a human-readable level string (e.g. "debug", "info",
+// "warn", "error") into the corresponding slog.Level. Unknown values default
+// to slog.LevelInfo.
+func ParseLogLevel(s string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "trace", "debug":
 		return slog.LevelDebug
-	case "INFO":
+	case "info":
 		return slog.LevelInfo
-	case "WARN":
+	case "warn", "warning":
 		return slog.LevelWarn
-	case "ERROR":
+	case "error":
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
+	}
+}
+
+// RustLogFilter returns the RUST_LOG-compatible filter string that corresponds
+// to the given ERST log level name. This is used when spawning the Rust
+// simulator subprocess so that a single ERST_LOG_LEVEL value controls both the
+// Go logger and the Rust tracing subscriber.
+func RustLogFilter(erstLevel string) string {
+	switch strings.ToLower(strings.TrimSpace(erstLevel)) {
+	case "trace":
+		return "trace"
+	case "debug":
+		return "debug"
+	case "info":
+		return "info"
+	case "warn", "warning":
+		return "warn"
+	case "error":
+		return "error"
+	default:
+		return "info"
 	}
 }
 

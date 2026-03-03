@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/dotandev/hintents/internal/logger"
@@ -29,6 +30,9 @@ type CacheEntry struct {
 
 // SourceCache provides local disk caching for downloaded source code.
 // It prevents redundant network requests for previously fetched sources.
+// Both an in-process sync.RWMutex and OS-level advisory file locks (flock)
+// are used to prevent corruption from concurrent writes across multiple
+// processes (e.g. parallel test suites).
 type SourceCache struct {
 	cacheDir string
 	ttl      time.Duration
@@ -60,6 +64,15 @@ func (sc *SourceCache) Get(contractID string) *SourceCode {
 	defer sc.mu.RUnlock()
 
 	path := sc.entryPath(contractID)
+
+	// Acquire a shared OS-level file lock on the lock file before reading.
+	lf, err := sc.acquireLock(path, false)
+	if err != nil {
+		logger.Logger.Warn("Failed to acquire read lock", "contract_id", contractID, "error", err)
+		return nil
+	}
+	defer sc.releaseLock(lf)
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -97,8 +110,22 @@ func (sc *SourceCache) Put(source *SourceCode) error {
 	}
 
 	path := sc.entryPath(source.ContractID)
-	if err := os.WriteFile(path, data, 0600); err != nil {
+
+	// Acquire an exclusive OS-level file lock before writing.
+	lf, err := sc.acquireLock(path, true)
+	if err != nil {
+		return fmt.Errorf("failed to acquire write lock for cache entry: %w", err)
+	}
+	defer sc.releaseLock(lf)
+
+	// Write atomically: write to a temp file then rename to avoid partial reads.
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write cache entry: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("failed to commit cache entry: %w", err)
 	}
 
 	logger.Logger.Debug("Source cached", "contract_id", source.ContractID, "path", path)
@@ -111,7 +138,14 @@ func (sc *SourceCache) Invalidate(contractID string) error {
 	defer sc.mu.Unlock()
 
 	path := sc.entryPath(contractID)
-	err := os.Remove(path)
+
+	lf, err := sc.acquireLock(path, true)
+	if err != nil {
+		return fmt.Errorf("failed to acquire lock for invalidation: %w", err)
+	}
+	defer sc.releaseLock(lf)
+
+	err = os.Remove(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -146,4 +180,39 @@ func (sc *SourceCache) entryPath(contractID string) string {
 	hash := sha256.Sum256([]byte(contractID))
 	filename := fmt.Sprintf("%x.json", hash[:8])
 	return filepath.Join(sc.cacheDir, filename)
+}
+
+// lockPath returns the path for the advisory lock file for a given cache entry.
+func (sc *SourceCache) lockPath(entryPath string) string {
+	return entryPath + ".lock"
+}
+
+// acquireLock opens or creates a lock file and applies an OS-level flock:
+//   - exclusive=true  → LOCK_EX (writer lock)
+//   - exclusive=false → LOCK_SH (reader lock)
+//
+// The returned *os.File must be passed to releaseLock when the critical
+// section is done.
+func (sc *SourceCache) acquireLock(entryPath string, exclusive bool) (*os.File, error) {
+	lp := sc.lockPath(entryPath)
+	lf, err := os.OpenFile(lp, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open lock file %q: %w", lp, err)
+	}
+
+	how := syscall.LOCK_SH
+	if exclusive {
+		how = syscall.LOCK_EX
+	}
+	if err := syscall.Flock(int(lf.Fd()), how); err != nil {
+		_ = lf.Close()
+		return nil, fmt.Errorf("flock failed on %q: %w", lp, err)
+	}
+	return lf, nil
+}
+
+// releaseLock unlocks and closes the lock file.
+func (sc *SourceCache) releaseLock(lf *os.File) {
+	_ = syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
+	_ = lf.Close()
 }
