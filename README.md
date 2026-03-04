@@ -30,6 +30,12 @@ Fetches a transaction envelope from the Stellar Public network and prints its XD
 ./erst debug <transaction-hash> --network testnet
 ```
 
+Debug an offline envelope from stdin (no RPC):
+
+```bash
+./erst debug < tx.xdr
+```
+
 ### Interactive Trace Viewer
 
 Launch an interactive terminal UI to explore transaction execution traces with search functionality.

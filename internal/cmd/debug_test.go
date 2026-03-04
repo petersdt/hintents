@@ -109,8 +109,8 @@ func TestLoadOverrideState_RealWorldExample(t *testing.T) {
 		t.Fatalf("failed to marshal test data: %v", err)
 	}
 
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+	if writeErr := os.WriteFile(tmpFile, data, 0644); writeErr != nil {
+		t.Fatalf("failed to write test file: %v", writeErr)
 	}
 
 	entries, err := loadOverrideState(tmpFile)
@@ -343,4 +343,77 @@ func TestExtractLedgerKeys(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "Key not found in extracted keys")
+}
+
+func TestParseEnvelopeXDRInput(t *testing.T) {
+	validEnvelopeXdr := buildTestEnvelopeXdr(t)
+
+	tests := []struct {
+		name      string
+		input     string
+		wantErr   bool
+		wantValue string
+	}{
+		{
+			name:      "valid envelope with whitespace",
+			input:     " \n" + validEnvelopeXdr + "\n",
+			wantErr:   false,
+			wantValue: validEnvelopeXdr,
+		},
+		{
+			name:    "empty input",
+			input:   " \n\t ",
+			wantErr: true,
+		},
+		{
+			name:    "invalid base64",
+			input:   "%%%not-base64%%%",
+			wantErr: true,
+		},
+		{
+			name:    "base64 but invalid envelope xdr",
+			input:   base64.StdEncoding.EncodeToString([]byte("not-an-envelope")),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseEnvelopeXDRInput(tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantValue, got)
+		})
+	}
+}
+
+func buildTestEnvelopeXdr(t *testing.T) string {
+	t.Helper()
+
+	sourceAccount := xdr.MustAddress("GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H")
+
+	envelope := xdr.TransactionEnvelope{
+		Type: xdr.EnvelopeTypeEnvelopeTypeTx,
+		V1: &xdr.TransactionV1Envelope{
+			Tx: xdr.Transaction{
+				SourceAccount: sourceAccount.ToMuxedAccount(),
+				Fee:           100,
+				SeqNum:        1,
+				Cond:          xdr.Preconditions{Type: xdr.PreconditionTypePrecondNone},
+				Memo:          xdr.Memo{Type: xdr.MemoTypeMemoNone},
+				Operations:    []xdr.Operation{},
+				Ext:           xdr.TransactionExt{V: 0},
+			},
+			Signatures: []xdr.DecoratedSignature{},
+		},
+	}
+
+	envelopeBytes, err := envelope.MarshalBinary()
+	assert.NoError(t, err)
+
+	return base64.StdEncoding.EncodeToString(envelopeBytes)
 }

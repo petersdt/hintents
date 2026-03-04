@@ -1,4 +1,9 @@
+# Copyright 2025 Erst Users
+# SPDX-License-Identifier: Apache-2.0
+
 #!/bin/bash
+# Copyright (c) Hintents Authors.
+# SPDX-License-Identifier: Apache-2.0
 
 # Verification script for Prometheus metrics implementation
 # This script checks that all files are in place and have correct structure

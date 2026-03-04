@@ -72,7 +72,7 @@ Debug a failed Soroban transaction. Fetches a transaction envelope from the Stel
 ### Usage
 
 ```bash
-erst debug <transaction-hash> [flags]
+erst debug [transaction-hash] [flags]
 ```
 
 ### Examples
@@ -80,6 +80,7 @@ erst debug <transaction-hash> [flags]
 ```bash
 erst debug 5c0a1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab
 erst debug --network testnet <tx-hash>
+erst debug < tx.xdr
 ```
 
 ### Options
@@ -94,7 +95,22 @@ erst debug --network testnet <tx-hash>
 
 | Argument | Description |
 | :--- | :--- |
-| `<transaction-hash>` | The hash of the transaction to debug. |
+| `<transaction-hash>` | Optional transaction hash (required unless envelope XDR is piped via stdin). |
+
+### Interrupt and Shutdown Behavior
+
+When `erst` receives `Ctrl+C` (`SIGINT`) or `SIGTERM` during polling or simulation:
+
+- Active command execution is canceled immediately.
+- Shutdown hooks run once in deterministic order.
+- RPC cache flush is attempted as best-effort.
+- Active `erst-sim` child process groups are terminated gracefully (`SIGTERM`), then force-killed (`SIGKILL`) if they do not exit within the grace timeout.
+- The CLI exits with code `130`.
+
+Repeated interrupt handling:
+
+- First interrupt starts graceful shutdown.
+- A second interrupt during shutdown forces immediate exit with code `130`.
 
 ### Interrupt and Shutdown Behavior
 

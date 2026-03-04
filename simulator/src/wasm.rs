@@ -1,6 +1,8 @@
 // Copyright 2025 Erst Users
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(dead_code)]
+
 use std::fs::File;
 use std::io::{BufReader, Read};
 

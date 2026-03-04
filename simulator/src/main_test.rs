@@ -6,8 +6,11 @@ mod restore_preamble_tests {
     use super::*;
     use crate::types::SimulationRequest;
     use base64::Engine as _;
-    use soroban_env_host::xdr::{LedgerEntry, LedgerKey, WriteXdr, ContractDataDurability, ContractDataEntry, LedgerEntryData, LedgerEntryExt, Hash, ScAddress, ScVal, LedgerKeyContractData};
     use serde_json::json;
+    use soroban_env_host::xdr::{
+        ContractDataDurability, ContractDataEntry, Hash, LedgerEntry, LedgerEntryData,
+        LedgerEntryExt, LedgerKey, LedgerKeyContractData, ScAddress, ScVal, WriteXdr,
+    };
 
     fn encode_xdr<T: WriteXdr>(value: &T) -> String {
         let bytes = value.to_xdr(soroban_env_host::xdr::Limits::none()).unwrap();
@@ -66,7 +69,8 @@ mod restore_preamble_tests {
                         for (key_xdr, entry_xdr_val) in map {
                             if let Some(entry_xdr) = entry_xdr_val.as_str() {
                                 let key = crate::snapshot::decode_ledger_key(key_xdr).unwrap();
-                                let entry = crate::snapshot::decode_ledger_entry(entry_xdr).unwrap();
+                                let entry =
+                                    crate::snapshot::decode_ledger_entry(entry_xdr).unwrap();
                                 let result = host.put_ledger_entry(key.clone(), entry.clone());
                                 assert!(result.is_ok(), "Injection should succeed");
                             }

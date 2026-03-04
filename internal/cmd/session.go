@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/dotandev/hintents/internal/errors"
@@ -101,7 +102,8 @@ The session ID can be auto-generated or specified with --id flag.`,
 		defer store.Close()
 
 		// Run cleanup before save
-		if err := store.Cleanup(ctx, session.DefaultTTL, session.DefaultMaxSessions); err != nil {
+		err = store.Cleanup(ctx, session.DefaultTTL, session.DefaultMaxSessions)
+		if err != nil {
 			// Log but don't fail on cleanup errors
 			fmt.Fprintf(os.Stderr, "Warning: cleanup failed: %v\n", err)
 		}
@@ -146,7 +148,8 @@ Use 'erst session list' to see available sessions.`,
 		defer store.Close()
 
 		// Run cleanup
-		if err := store.Cleanup(ctx, session.DefaultTTL, session.DefaultMaxSessions); err != nil {
+		err = store.Cleanup(ctx, session.DefaultTTL, session.DefaultMaxSessions)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: session cleanup failed: %v\n", err)
 		}
 
@@ -196,6 +199,17 @@ Use 'erst session list' to see available sessions.`,
 			}
 		}
 
+		// Show persisted viewer state if any (best-effort).
+		if uiStore, err := session.NewUIStateStore(); err == nil {
+			defer uiStore.Close()
+			if sections, err := uiStore.LoadSectionState(ctx, data.TxHash); err == nil && len(sections) > 0 {
+				fmt.Printf("\nViewer state: [%s]\n", strings.Join(sections, ", "))
+			}
+			if queries, err := uiStore.RecentSearches(ctx, 5); err == nil && len(queries) > 0 {
+				fmt.Printf("Recent searches: %s\n", strings.Join(queries, ", "))
+			}
+		}
+
 		return nil
 	},
 }
@@ -220,7 +234,8 @@ Displays session ID, network, last access time, and transaction hash.`,
 		defer store.Close()
 
 		// Run cleanup
-		if err := store.Cleanup(ctx, session.DefaultTTL, session.DefaultMaxSessions); err != nil {
+		err = store.Cleanup(ctx, session.DefaultTTL, session.DefaultMaxSessions)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: session cleanup failed: %v\n", err)
 		}
 

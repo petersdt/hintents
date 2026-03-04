@@ -6,6 +6,8 @@
 //! This module provides utilities to parse WebAssembly type sections and function tables,
 //! enabling detailed error messages when call_indirect traps occur.
 
+#![allow(dead_code)]
+
 use serde::Serialize;
 use wasmparser::{Parser, Payload, ValType};
 
@@ -167,21 +169,20 @@ impl TypeSection {
 
                     // RecGroup contains SubType entries
                     for sub_type in rec_group.types() {
-                        if let wasmparser::CompositeType::Func(func_type) = &sub_type.composite_type {
-                            let params = func_type
-                                .params()
-                                .iter()
-                                .map(|vt| ValueType::from_valtype(*vt))
-                                .collect();
+                        let func_type = sub_type.composite_type.unwrap_func();
+                        let params = func_type
+                            .params()
+                            .iter()
+                            .map(|vt| ValueType::from_valtype(*vt))
+                            .collect();
 
-                            let results = func_type
-                                .results()
-                                .iter()
-                                .map(|vt| ValueType::from_valtype(*vt))
-                                .collect();
+                        let results = func_type
+                            .results()
+                            .iter()
+                            .map(|vt| ValueType::from_valtype(*vt))
+                            .collect();
 
-                            types.push(FunctionSignature::new(params, results));
-                        }
+                        types.push(FunctionSignature::new(params, results));
                     }
                 }
             }
@@ -245,7 +246,8 @@ mod tests {
 
     #[test]
     fn test_signature_format_multiple_results() {
-        let sig = FunctionSignature::new(vec![ValueType::I32], vec![ValueType::I32, ValueType::I64]);
+        let sig =
+            FunctionSignature::new(vec![ValueType::I32], vec![ValueType::I32, ValueType::I64]);
         assert_eq!(sig.format(), "(i32) -> (i32, i64)");
     }
 
@@ -264,7 +266,8 @@ mod tests {
     #[test]
     fn test_signature_compare_different_param_count() {
         let sig1 = FunctionSignature::new(vec![ValueType::I32], vec![ValueType::I64]);
-        let sig2 = FunctionSignature::new(vec![ValueType::I32, ValueType::I32], vec![ValueType::I64]);
+        let sig2 =
+            FunctionSignature::new(vec![ValueType::I32, ValueType::I32], vec![ValueType::I64]);
         let diff = sig1.compare(&sig2);
         assert!(!diff.is_match());
         assert!(!diff.param_count_match);
@@ -274,7 +277,8 @@ mod tests {
     #[test]
     fn test_signature_compare_different_result_count() {
         let sig1 = FunctionSignature::new(vec![ValueType::I32], vec![ValueType::I64]);
-        let sig2 = FunctionSignature::new(vec![ValueType::I32], vec![ValueType::I64, ValueType::I32]);
+        let sig2 =
+            FunctionSignature::new(vec![ValueType::I32], vec![ValueType::I64, ValueType::I32]);
         let diff = sig1.compare(&sig2);
         assert!(!diff.is_match());
         assert!(diff.param_count_match);

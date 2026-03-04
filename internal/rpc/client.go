@@ -460,6 +460,8 @@ func (c *Client) getTransactionAttempt(ctx context.Context, hash string) (txResp
 
 	logger.Logger.Debug("Fetching transaction details", "hash", hash, "url", c.HorizonURL)
 
+	startTime := time.Now()
+
 	// Fail fast if circuit breaker is open for this Horizon endpoint.
 	if !c.isHealthy(c.HorizonURL) {
 		err := fmt.Errorf("circuit breaker open for %s", c.HorizonURL)
@@ -531,13 +533,6 @@ type GetLedgerEntriesResponse struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
-}
-
-type LedgerEntryResult struct {
-	Key                string `json:"key"`
-	Xdr                string `json:"xdr"`
-	LastModifiedLedger int    `json:"lastModifiedLedgerSeq"`
-	LiveUntilLedger    int    `json:"liveUntilLedgerSeq"`
 }
 
 // GetLedgerHeader fetches ledger header details for a specific sequence.
@@ -718,6 +713,7 @@ func IsResponseTooLarge(err error) bool {
 
 // GetLedgerEntries fetches the current state of ledger entries from Soroban RPC
 // keys should be a list of base64-encoded XDR LedgerKeys
+// This method implements batching and concurrent requests for large key sets
 func (c *Client) GetLedgerEntries(ctx context.Context, keys []string) (map[string]string, error) {
 	if len(keys) == 0 {
 		return map[string]string{}, nil
@@ -755,21 +751,37 @@ func (c *Client) GetLedgerEntries(ctx context.Context, keys []string) (map[strin
 	}
 
 	logger.Logger.Debug("Fetching ledger entries from RPC", "count", len(keysToFetch), "url", c.SorobanURL)
+
+	// Batch keys into chunks for concurrent processing
+	const batchSize = 50
+	batches := chunkKeys(keysToFetch, batchSize)
+
+	// Use concurrent requests for large batches
+	if len(batches) > 1 {
+		fetchedEntries, err := c.getLedgerEntriesConcurrent(ctx, batches)
+		if err != nil {
+			return nil, err
+		}
+		// Merge cached entries with fetched entries
+		for k, v := range fetchedEntries {
+			entries[k] = v
+		}
+		return entries, nil
+	}
+
+	// Single batch - use existing failover logic
 	attempts := c.endpointAttempts()
-	var failures []NodeFailure
 	for attempt := 0; attempt < attempts; attempt++ {
-		res, err := c.getLedgerEntriesAttempt(ctx, keysToFetch)
+		fetchedEntries, err := c.getLedgerEntriesAttempt(ctx, keysToFetch)
 		if err == nil {
-			c.markSuccess(c.SorobanURL)
-			// Merge with cached results
-			for k, v := range res {
+			// Merge cached entries with fetched entries
+			for k, v := range fetchedEntries {
 				entries[k] = v
 			}
 			return entries, nil
 		}
 
 		c.markFailure(c.SorobanURL)
-		failures = append(failures, NodeFailure{URL: c.SorobanURL, Reason: err})
 
 		if attempt < attempts-1 && len(c.AltURLs) > 1 {
 			logger.Logger.Warn("Retrying with fallback Soroban RPC...", "error", err)
@@ -783,7 +795,98 @@ func (c *Client) GetLedgerEntries(ctx context.Context, keys []string) (map[strin
 			return nil, err
 		}
 	}
-	return nil, &AllNodesFailedError{Failures: failures}
+	return nil, &AllNodesFailedError{Failures: []NodeFailure{}}
+}
+
+// getLedgerEntriesConcurrent fetches multiple batches concurrently with timeout handling
+func (c *Client) getLedgerEntriesConcurrent(ctx context.Context, batches [][]string) (map[string]string, error) {
+	tracer := telemetry.GetTracer()
+	_, span := tracer.Start(ctx, "rpc_get_ledger_entries_concurrent")
+	span.SetAttributes(
+		attribute.Int("batch.count", len(batches)),
+		attribute.String("network", string(c.Network)),
+	)
+	defer span.End()
+
+	type batchResult struct {
+		entries map[string]string
+		err     error
+	}
+
+	results := make(chan batchResult, len(batches))
+	var wg sync.WaitGroup
+
+	// Create a context with timeout for all concurrent requests
+	batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	logger.Logger.Info("Fetching ledger entries concurrently",
+		"batch_count", len(batches),
+		"total_keys", sumBatchSizes(batches))
+
+	for _, batch := range batches {
+		wg.Add(1)
+		go func(keys []string) {
+			defer wg.Done()
+
+			// Attempt with failover for each batch
+			var entries map[string]string
+			var err error
+			for attempt := 0; attempt < len(c.AltURLs); attempt++ {
+				entries, err = c.getLedgerEntriesAttempt(batchCtx, keys)
+				if err == nil {
+					break
+				}
+				if attempt < len(c.AltURLs)-1 {
+					logger.Logger.Warn("Batch request failed, trying next URL", "error", err)
+					c.rotateURL()
+				}
+			}
+
+			results <- batchResult{entries: entries, err: err}
+		}(batch)
+	}
+
+	// Wait for all goroutines to complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	allEntries := make(map[string]string)
+	var errs []error
+
+	for result := range results {
+		if result.err != nil {
+			errs = append(errs, result.err)
+			span.RecordError(result.err)
+		} else {
+			for k, v := range result.entries {
+				allEntries[k] = v
+			}
+		}
+	}
+
+	// If any batch failed, return error
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("failed to fetch %d/%d batches: %v", len(errs), len(batches), errs[0])
+	}
+
+	logger.Logger.Info("Concurrent ledger entry fetch completed",
+		"total_entries", len(allEntries),
+		"batches", len(batches))
+
+	return allEntries, nil
+}
+
+// sumBatchSizes calculates total number of keys across all batches
+func sumBatchSizes(batches [][]string) int {
+	total := 0
+	for _, batch := range batches {
+		total += len(batch)
+	}
+	return total
 }
 
 func (c *Client) getLedgerEntriesAttempt(ctx context.Context, keysToFetch []string) (entries map[string]string, err error) {
@@ -810,6 +913,8 @@ func (c *Client) getLedgerEntriesAttempt(ctx context.Context, keysToFetch []stri
 	}()
 
 	logger.Logger.Debug("Fetching ledger entries", "count", len(keysToFetch), "url", targetURL)
+
+	startTime := time.Now()
 
 	// Fail fast if circuit breaker is open for this Soroban endpoint.
 	if !c.isHealthy(targetURL) {
@@ -882,7 +987,7 @@ func (c *Client) getLedgerEntriesAttempt(ctx context.Context, keysToFetch []stri
 	// Record successful remote node response
 	metrics.RecordRemoteNodeResponse(targetURL, string(c.Network), true, duration)
 
-	entries := make(map[string]string)
+	entries = make(map[string]string)
 	fetchedCount := 0
 	for _, entry := range rpcResp.Result.Entries {
 		entries[entry.Key] = entry.Xdr
@@ -1252,7 +1357,6 @@ func (c *Client) getHealthAttempt(ctx context.Context) (healthResp *GetHealthRes
 
 	// Prefer SorobanURL but fall back to the currently active HorizonURL so that
 	// rotateURL-triggered failovers are reflected in health checks.
-	targetURL := c.SorobanURL
 	if targetURL == "" {
 		targetURL = c.HorizonURL
 	}
@@ -1404,4 +1508,3 @@ func (c *Client) CheckStaleness(ctx context.Context, network string) error {
 
 	return nil
 }
-
