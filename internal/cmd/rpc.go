@@ -81,6 +81,7 @@ var rpcHealthCmd = &cobra.Command{
 			}
 
 			duration := time.Since(start)
+
 			if success {
 				fmt.Printf("  [%d]  %s\n", i+1, url)
 				fmt.Printf("      Status: %s\n", status)

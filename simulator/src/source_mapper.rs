@@ -20,7 +20,6 @@ pub struct SourceLocation {
     pub line: u32,
     pub column: Option<u32>,
     pub column_end: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub github_link: Option<String>,
 }
 
@@ -45,7 +44,7 @@ impl SourceMapper {
         }
         let has_symbols = Self::check_debug_symbols(&wasm_bytes);
         let git_repo = Self::detect_git_repository();
-        
+
         let line_cache = if has_symbols {
             Self::build_line_cache(&wasm_bytes).unwrap_or_default()
         } else {
@@ -252,7 +251,7 @@ impl SourceMapper {
         }
 
         let mut location = entry.location.clone();
-        
+
         // Add GitHub link if available
         if let Some(ref git_repo) = self.git_repo {
             location.github_link = git_repo.generate_file_link(&location.file, location.line);
@@ -261,8 +260,15 @@ impl SourceMapper {
         Some(location)
     }
 
-    pub fn create_source_location(&self, file: String, line: u32, column: Option<u32>) -> SourceLocation {
-        let github_link = self.git_repo
+    #[allow(dead_code)]
+    pub fn create_source_location(
+        &self,
+        file: String,
+        line: u32,
+        column: Option<u32>,
+    ) -> SourceLocation {
+        let github_link = self
+            .git_repo
             .as_ref()
             .and_then(|repo| repo.generate_file_link(&file, line));
 
@@ -403,8 +409,7 @@ mod tests {
         let wasm_hash = SourceMapCache::compute_wasm_hash(&wasm_bytes);
 
         {
-            let mapper =
-                SourceMapper::new_with_options(wasm_bytes.clone(), false);
+            let mapper = SourceMapper::new_with_options(wasm_bytes.clone(), false);
             assert!(!mapper.has_debug_symbols());
             let result = mapper.map_wasm_offset_to_source(0x1234);
             assert!(result.is_none());

@@ -16,11 +16,9 @@ import (
 	"time"
 
 	"github.com/dotandev/hintents/internal/config"
-	"github.com/dotandev/hintents/internal/decenstorage"
 	"github.com/dotandev/hintents/internal/decoder"
 	"github.com/dotandev/hintents/internal/errors"
 	"github.com/dotandev/hintents/internal/logger"
-	"github.com/dotandev/hintents/internal/lto"
 	"github.com/dotandev/hintents/internal/rpc"
 	"github.com/dotandev/hintents/internal/security"
 	"github.com/dotandev/hintents/internal/session"
@@ -36,37 +34,7 @@ import (
 	"github.com/stellar/go-stellar-sdk/xdr"
 	"go.opentelemetry.io/otel/attribute"
 )
-
 var (
-	networkFlag         string
-	rpcURLFlag          string
-	rpcTokenFlag        string
-	tracingEnabled      bool
-	otlpExporterURL     string
-	generateTrace       bool
-	traceOutputFile     string
-	snapshotFlag        string
-	compareNetworkFlag  string
-	verbose             bool
-	wasmPath            string
-	wasmOptimizeFlag    bool
-	args                []string
-	themeFlag           string
-	noCacheFlag         bool
-	demoMode            bool
-	watchFlag           bool
-	watchTimeoutFlag    int
-	protocolVersionFlag  uint32
-	themeFlag            string
-	auditKeyFlag         string
-	publishIPFSFlag      bool
-	publishArweaveFlag   bool
-	ipfsNodeFlag         string
-	arweaveGatewayFlag   string
-	arweaveWalletFlag    string
-	protocolVersionFlag uint32
-	themeFlag           string
-	mockTimeFlag        int64
 	networkFlag        string
 	rpcURLFlag         string
 	rpcTokenFlag       string
@@ -85,11 +53,6 @@ var (
 	watchTimeoutFlag   int
 	mockBaseFeeFlag    uint32
 	mockGasPriceFlag   uint64
-	themeFlag           string
-	mockTimeFlag        int64
-	protocolVersionFlag uint32
-	mockBaseFeeFlag     uint32
-	mockGasPriceFlag    uint64
 )
 
 // DebugCommand holds dependencies for the debug command
@@ -159,7 +122,6 @@ func (d *DebugCommand) runDebug(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return errors.WrapValidationError(fmt.Sprintf("failed to create client: %v", err))
 	}
-	registerCacheFlushHook()
 
 	fmt.Printf("Debugging transaction: %s\n", txHash)
 	fmt.Printf("Network: %s\n", networkFlag)
@@ -186,9 +148,8 @@ func (d *DebugCommand) runDebug(cmd *cobra.Command, args []string) error {
 }
 
 var debugCmd = &cobra.Command{
-	Use:     "debug <transaction-hash>",
-	GroupID: "core",
-	Short:   "Debug a failed Soroban transaction",
+	Use:   "debug <transaction-hash>",
+	Short: "Debug a failed Soroban transaction",
 	Long: `Fetch and simulate a Soroban transaction to debug failures and analyze execution.
 
 This command retrieves the transaction envelope from the Stellar network, runs it
@@ -290,12 +251,22 @@ Local WASM Replay Mode:
 
 		// Local WASM replay mode
 		if wasmPath != "" {
-			return runLocalWasmReplay(cmd.Context())
+			return runLocalWasmReplay()
 		}
 
 		// Network transaction replay mode
 		ctx := cmd.Context()
 		txHash := cmdArgs[0]
+
+		// Load persisted viewer state for this transaction (best-effort).
+		var uiStore *session.UIStateStore
+		if s, err := session.NewUIStateStore(); err == nil {
+			uiStore = s
+			defer uiStore.Close()
+			if prev, err := uiStore.LoadSectionState(ctx, txHash); err == nil && len(prev) > 0 {
+				fmt.Printf("Restoring viewer state: last session showed [%s] for this transaction.\n", strings.Join(prev, ", "))
+			}
+		}
 
 		// Initialize OpenTelemetry if enabled
 		if tracingEnabled {
@@ -359,7 +330,6 @@ Local WASM Replay Mode:
 		if err != nil {
 			return errors.WrapValidationError(fmt.Sprintf("failed to create client: %v", err))
 		}
-		registerCacheFlushHook()
 
 		if horizonURL == "" {
 			// Extract horizon URL from valid client if not explicitly set
@@ -397,10 +367,6 @@ Local WASM Replay Mode:
 			}, nil)
 
 			if err != nil {
-				if IsCancellation(err) {
-					spinner.StopWithMessage("Interrupted. Stopping watch...")
-					return err
-				}
 				spinner.StopWithError("Failed to poll for transaction")
 				return errors.WrapSimulationLogicError(fmt.Sprintf("watch mode error: %v", err))
 			}
@@ -432,8 +398,6 @@ Local WASM Replay Mode:
 		if err != nil {
 			return errors.WrapSimulatorNotFound(err.Error())
 		}
-		registerRunnerCloseHook("debug-simulator-runner", runner)
-		defer func() { _ = runner.Close() }()
 
 		// Determine timestamps to simulate
 		timestamps := []int64{TimestampFlag}
@@ -485,7 +449,6 @@ Local WASM Replay Mode:
 					LedgerEntries:   ledgerEntries,
 					Timestamp:       ts,
 					ProtocolVersion: nil,
-					Profile:         ProfileFlag,
 				}
 
 				// Apply protocol version override if specified
@@ -498,7 +461,7 @@ Local WASM Replay Mode:
 				}
 				applySimulationFeeMocks(simReq)
 
-				simResp, err = runner.Run(ctx, simReq)
+				simResp, err = runner.Run(simReq)
 				if err != nil {
 					return errors.WrapSimulationFailed(err, "")
 				}
@@ -534,10 +497,9 @@ Local WASM Replay Mode:
 						ResultMetaXdr: resp.ResultMetaXdr,
 						LedgerEntries: entries,
 						Timestamp:     ts,
-						Profile:       ProfileFlag,
 					}
 					applySimulationFeeMocks(primaryReq)
-					primaryResult, primaryErr = runner.Run(ctx, primaryReq)
+					primaryResult, primaryErr = runner.Run(primaryReq)
 				}()
 
 				go func() {
@@ -575,10 +537,9 @@ Local WASM Replay Mode:
 						ResultMetaXdr: compareResp.ResultMetaXdr,
 						LedgerEntries: entries,
 						Timestamp:     ts,
-						Profile:       ProfileFlag,
 					}
 					applySimulationFeeMocks(compareReq)
-					compareResult, compareErr = runner.Run(ctx, compareReq)
+					compareResult, compareErr = runner.Run(compareReq)
 				}()
 
 				wg.Wait()
@@ -608,21 +569,10 @@ Local WASM Replay Mode:
 			return errors.WrapSimulationLogicError("no simulation results generated")
 		}
 
-		// Save flamegraph SVG with dark-mode CSS when profiling is enabled
-		if ProfileFlag && lastSimResp.Flamegraph != "" {
-			svgContent := visualizer.InjectDarkMode(lastSimResp.Flamegraph)
-			svgFilename := txHash + ".flamegraph.svg"
-			if err := os.WriteFile(svgFilename, []byte(svgContent), 0644); err != nil {
-				fmt.Printf("%s Failed to write flamegraph: %v\n", visualizer.Warning(), err)
-			} else {
-				fmt.Printf("%s Flamegraph saved: %s\n", visualizer.Success(), svgFilename)
-			}
-		}
-
 		// Analysis: Error Suggestions (Heuristic-based)
 		if len(lastSimResp.Events) > 0 {
 			suggestionEngine := decoder.NewSuggestionEngine()
-
+			
 			// Decode events for analysis
 			callTree, err := decoder.DecodeEvents(lastSimResp.Events)
 			if err == nil && callTree != nil {
@@ -673,13 +623,20 @@ Local WASM Replay Mode:
 		}
 
 		// Analysis: Token Flows
+		hasTokenFlows := false
 		if report, err := tokenflow.BuildReport(resp.EnvelopeXdr, resp.ResultMetaXdr); err == nil && len(report.Agg) > 0 {
+			hasTokenFlows = true
 			fmt.Printf("\nToken Flow Summary:\n")
 			for _, line := range report.SummaryLines() {
 				fmt.Printf("  %s\n", line)
 			}
 			fmt.Printf("\nToken Flow Chart (Mermaid):\n")
 			fmt.Println(report.MermaidFlowchart())
+		}
+
+		// Persist viewer state so the next debug of this transaction restores context.
+		if uiStore != nil {
+			_ = uiStore.SaveSectionState(ctx, txHash, collectVisibleSections(lastSimResp, findings, hasTokenFlows))
 		}
 
 		// Session Management
@@ -716,57 +673,6 @@ Local WASM Replay Mode:
 		SetCurrentSession(sessionData)
 		fmt.Printf("\nSession created: %s\n", sessionData.ID)
 		fmt.Printf("Run 'erst session save' to persist this session.\n")
-
-		// Publish signed audit trail to decentralised storage when requested.
-		if publishIPFSFlag || publishArweaveFlag {
-			if auditKeyFlag == "" {
-				return errors.WrapCliArgumentRequired("audit-key")
-			}
-			auditLog, auditErr := Generate(
-				txHash,
-				resp.EnvelopeXdr,
-				resp.ResultMetaXdr,
-				lastSimResp.Events,
-				lastSimResp.Logs,
-				auditKeyFlag,
-			)
-			if auditErr != nil {
-				return fmt.Errorf("failed to generate audit log: %w", auditErr)
-			}
-			auditBytes, auditErr := json.Marshal(auditLog)
-			if auditErr != nil {
-				return fmt.Errorf("failed to marshal audit log: %w", auditErr)
-			}
-
-			pub := decenstorage.New(decenstorage.PublishConfig{
-				IPFSNode:       ipfsNodeFlag,
-				ArweaveGateway: arweaveGatewayFlag,
-				ArweaveWallet:  arweaveWalletFlag,
-			})
-
-			fmt.Printf("\n=== Decentralised Storage ===\n")
-
-			if publishIPFSFlag {
-				result, ipfsErr := pub.PublishIPFS(ctx, auditBytes)
-				if ipfsErr != nil {
-					fmt.Printf("IPFS publish failed: %v\n", ipfsErr)
-				} else {
-					fmt.Printf("IPFS CID : %s\n", result.CID)
-					fmt.Printf("IPFS URL : %s\n", result.URL)
-				}
-			}
-
-			if publishArweaveFlag {
-				result, arErr := pub.PublishArweave(ctx, auditBytes)
-				if arErr != nil {
-					fmt.Printf("Arweave publish failed: %v\n", arErr)
-				} else {
-					fmt.Printf("Arweave TXID : %s\n", result.TXID)
-					fmt.Printf("Arweave URL  : %s\n", result.URL)
-				}
-			}
-		}
-
 		return nil
 	},
 }
@@ -795,55 +701,39 @@ func runDemoMode(cmdArgs []string) error {
 	return nil
 }
 
-func runLocalWasmReplay(ctx context.Context) error {
+func runLocalWasmReplay() error {
 	fmt.Printf("%s  WARNING: Using Mock State (not mainnet data)\n", visualizer.Warning())
 	fmt.Println()
-	effectiveWasmPath := wasmPath
 
 	// Verify WASM file exists
-	if _, err := os.Stat(effectiveWasmPath); os.IsNotExist(err) {
+	if _, err := os.Stat(wasmPath); os.IsNotExist(err) {
 		return errors.WrapValidationError(fmt.Sprintf("WASM file not found: %s", wasmPath))
 	}
 
-	optimizedPath, report, cleanup, err := optimizeWasmFileIfRequested(effectiveWasmPath, wasmOptimizeFlag)
-	if err != nil {
-		return errors.WrapValidationError(fmt.Sprintf("failed to optimize WASM: %v", err))
-	}
-	defer cleanup()
-	effectiveWasmPath = optimizedPath
-
 	fmt.Printf("%s Local WASM Replay Mode\n", visualizer.Symbol("wrench"))
-	fmt.Printf("WASM File: %s\n", effectiveWasmPath)
-	if wasmOptimizeFlag {
-		printOptimizationReport(report)
-	}
+	fmt.Printf("WASM File: %s\n", wasmPath)
 	fmt.Printf("Arguments: %v\n", args)
 	fmt.Println()
-
-	// Check for LTO in the project that produced the WASM
-	checkLTOWarning(effectiveWasmPath)
 
 	// Create simulator runner
 	runner, err := simulator.NewRunner("", tracingEnabled)
 	if err != nil {
 		return errors.WrapSimulatorNotFound(err.Error())
 	}
-	registerRunnerCloseHook("local-wasm-simulator-runner", runner)
-	defer func() { _ = runner.Close() }()
 
 	// Create simulation request with local WASM
 	req := &simulator.SimulationRequest{
 		EnvelopeXdr:   "",  // Empty for local replay
 		ResultMetaXdr: "",  // Empty for local replay
 		LedgerEntries: nil, // Mock state will be generated
-		WasmPath:      &effectiveWasmPath,
+		WasmPath:      &wasmPath,
 		MockArgs:      &args,
 	}
 	applySimulationFeeMocks(req)
 
 	// Run simulation
 	fmt.Printf("%s Executing contract locally...\n", visualizer.Symbol("play"))
-	resp, err := runner.Run(ctx, req)
+	resp, err := runner.Run(req)
 	if err != nil {
 		fmt.Printf("%s Technical failure: %v\n", visualizer.Error(), err)
 		return err
@@ -860,7 +750,7 @@ func runLocalWasmReplay(ctx context.Context) error {
 		// Fallback to WAT disassembly if source mapping is unavailable but we have an offset
 		if resp.SourceLocation == "" && resp.WasmOffset != nil {
 			fmt.Println()
-			wasmBytes, err := os.ReadFile(effectiveWasmPath)
+			wasmBytes, err := os.ReadFile(wasmPath)
 			if err == nil {
 				fallbackMsg := wat.FormatFallback(wasmBytes, *resp.WasmOffset, 5)
 				fmt.Println(fallbackMsg)
@@ -1144,48 +1034,26 @@ func diffResults(res1, res2 *simulator.SimulationResponse, net1, net2 string) {
 	}
 }
 
-func applySimulationFeeMocks(req *simulator.SimulationRequest) {
-	if req == nil {
-		return
+// collectVisibleSections returns the names of output sections that contained
+// data during the last simulation run.
+func collectVisibleSections(resp *simulator.SimulationResponse, findings []security.Finding, hasTokenFlows bool) []string {
+	var sections []string
+	if resp.BudgetUsage != nil {
+		sections = append(sections, "budget")
 	}
-
-	if mockBaseFeeFlag > 0 {
-		baseFee := mockBaseFeeFlag
-		req.MockBaseFee = &baseFee
+	if len(resp.DiagnosticEvents) > 0 {
+		sections = append(sections, "events")
 	}
-	if mockGasPriceFlag > 0 {
-		gasPrice := mockGasPriceFlag
-		req.MockGasPrice = &gasPrice
+	if len(resp.Logs) > 0 {
+		sections = append(sections, "logs")
 	}
-}
-
-var deprecatedSorobanHostFunctions = []string{
-	"bytes_copy_from_linear_memory",
-	"bytes_copy_to_linear_memory",
-	"bytes_new_from_linear_memory",
-	"map_new_from_linear_memory",
-	"map_unpack_to_linear_memory",
-	"symbol_new_from_linear_memory",
-	"string_new_from_linear_memory",
-	"vec_new_from_linear_memory",
-	"vec_unpack_to_linear_memory",
-}
-
-func deprecatedHostFunctionInDiagnosticEvent(event simulator.DiagnosticEvent) (string, bool) {
-	if name, ok := findDeprecatedHostFunction(strings.Join(event.Topics, " ")); ok {
-		return name, true
+	if len(findings) > 0 {
+		sections = append(sections, "security")
 	}
-	return findDeprecatedHostFunction(event.Data)
-}
-
-func findDeprecatedHostFunction(input string) (string, bool) {
-	lower := strings.ToLower(input)
-	for _, fn := range deprecatedSorobanHostFunctions {
-		if strings.Contains(lower, strings.ToLower(fn)) {
-			return fn, true
-		}
+	if hasTokenFlows {
+		sections = append(sections, "tokenflow")
 	}
-	return "", false
+	return sections
 }
 
 func init() {
@@ -1200,61 +1068,16 @@ func init() {
 	debugCmd.Flags().StringVar(&compareNetworkFlag, "compare-network", "", "Network to compare against (testnet, mainnet, futurenet)")
 	debugCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	debugCmd.Flags().StringVar(&wasmPath, "wasm", "", "Path to local WASM file for local replay (no network required)")
-	debugCmd.Flags().BoolVar(&wasmOptimizeFlag, "optimize", false, "Run dead-code elimination on local WASM before replay")
 	debugCmd.Flags().StringSliceVar(&args, "args", []string{}, "Mock arguments for local replay (JSON array of strings)")
-	debugCmd.Flags().StringVar(&themeFlag, "theme", "", "Output theme (default, deuteranopia, protanopia, tritanopia, high-contrast)")
 	debugCmd.Flags().BoolVar(&noCacheFlag, "no-cache", false, "Disable local ledger state caching")
 	debugCmd.Flags().BoolVar(&demoMode, "demo", false, "Print sample output (no network) - for testing color detection")
 	debugCmd.Flags().BoolVar(&watchFlag, "watch", false, "Poll for transaction on-chain before debugging")
 	debugCmd.Flags().IntVar(&watchTimeoutFlag, "watch-timeout", 30, "Timeout in seconds for watch mode")
-	debugCmd.Flags().Uint32Var(&protocolVersionFlag, "protocol-version", 0, "Override protocol version for simulation (20, 21, 22, etc)")
-	debugCmd.Flags().StringVar(&themeFlag, "theme", "", "Color theme (default, deuteranopia, protanopia, tritanopia, high-contrast)")
-	debugCmd.Flags().StringVar(&auditKeyFlag, "audit-key", "", "Ed25519 private key (hex) used to sign the audit trail")
-	debugCmd.Flags().BoolVar(&publishIPFSFlag, "publish-ipfs", false, "Pin signed audit trail to IPFS after simulation (requires --audit-key)")
-	debugCmd.Flags().BoolVar(&publishArweaveFlag, "publish-arweave", false, "Upload signed audit trail to Arweave after simulation (requires --audit-key)")
-	debugCmd.Flags().StringVar(&ipfsNodeFlag, "ipfs-node", "", "Kubo-compatible IPFS HTTP RPC node URL (default: http://localhost:5001 or ERST_IPFS_NODE env)")
-	debugCmd.Flags().StringVar(&arweaveGatewayFlag, "arweave-gateway", "", "Arweave HTTP gateway URL (default: https://arweave.net or ERST_ARWEAVE_GATEWAY env)")
-	debugCmd.Flags().StringVar(&arweaveWalletFlag, "arweave-wallet", "", "Path to Arweave JWK wallet file for signing data transactions (or ERST_ARWEAVE_WALLET env)")
-	debugCmd.Flags().Int64Var(&mockTimeFlag, "mock-time", 0, "Fix the ledger timestamp for deterministic local simulation (Unix epoch seconds); 0 = disabled")
-	debugCmd.Flags().StringVar(&themeFlag, "theme", "", "Output theme (default, deuteranopia, protanopia, tritanopia, high-contrast)")
-	debugCmd.Flags().Int64Var(&mockTimeFlag, "mock-time", 0, "Override ledger timestamp (Unix epoch) for simulation")
-	debugCmd.Flags().Uint32Var(&protocolVersionFlag, "protocol-version", 0, "Override protocol version for simulation")
 	debugCmd.Flags().Uint32Var(&mockBaseFeeFlag, "mock-base-fee", 0, "Override base fee (stroops) for local fee sufficiency checks")
 	debugCmd.Flags().Uint64Var(&mockGasPriceFlag, "mock-gas-price", 0, "Override gas price multiplier for local fee sufficiency checks")
 
-	_ = debugCmd.RegisterFlagCompletionFunc("network", completeNetworkFlag)
-	_ = debugCmd.RegisterFlagCompletionFunc("compare-network", completeNetworkFlag)
-	_ = debugCmd.RegisterFlagCompletionFunc("theme", completeThemeFlag)
-
 	rootCmd.AddCommand(debugCmd)
 }
-
-// checkLTOWarning searches the directory tree around a WASM file for
-// Cargo.toml files with LTO settings and prints a warning if found.
-// It searches the WASM file's parent directory and up to two levels up
-// to find the project root.
-func checkLTOWarning(wasmFilePath string) {
-	dir := filepath.Dir(wasmFilePath)
-
-	// Walk up to 3 levels to find Cargo.toml files
-	for i := 0; i < 3; i++ {
-		results, err := lto.CheckProjectDir(dir)
-		if err != nil {
-			logger.Logger.Debug("LTO check failed", "dir", dir, "error", err)
-			break
-		}
-		if lto.HasLTO(results) {
-			fmt.Fprintf(os.Stderr, "\n%s\n", lto.FormatWarnings(results))
-			return
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-}
-
 func displaySourceLocation(loc *simulator.SourceLocation) {
 	fmt.Printf("%s Location: %s:%d:%d\n", visualizer.Symbol("location"), loc.File, loc.Line, loc.Column)
 

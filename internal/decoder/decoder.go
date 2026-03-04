@@ -110,7 +110,8 @@ func parseEvent(diag xdr.DiagnosticEvent) DecodedEvent {
 		contractID = hex.EncodeToString(diag.Event.ContractId[:])
 	}
 
-	topics := make([]string, 0)
+	// Pre-allocate topics slice capacity to reduce re-allocations
+	topics := make([]string, 0, len(diag.Event.Body.V0.Topics))
 	for _, topic := range diag.Event.Body.V0.Topics {
 		// Attempt to convert to string if symbol, otherwise hex/debug
 		if topic.Type == xdr.ScValTypeScvSymbol {

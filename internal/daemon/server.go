@@ -18,6 +18,7 @@ import (
 	"github.com/dotandev/hintents/internal/telemetry"
 	"github.com/gorilla/rpc/v2"
 	"github.com/gorilla/rpc/v2/json2"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -231,6 +232,9 @@ func (s *Server) Start(ctx context.Context, port string) error {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
+
+	// Prometheus metrics endpoint
+	http.Handle("/metrics", promhttp.Handler())
 
 	logger.Logger.Info("Starting JSON-RPC server", "port", port)
 

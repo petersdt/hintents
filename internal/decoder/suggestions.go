@@ -250,11 +250,14 @@ func (e *SuggestionEngine) AnalyzeCallTree(root *CallNode) []Suggestion {
 
 // collectEvents recursively collects all events from a call tree
 func (e *SuggestionEngine) collectEvents(node *CallNode) []DecodedEvent {
-	events := make([]DecodedEvent, 0)
-
 	if node == nil {
-		return events
+		return nil
 	}
+
+	// Pre-allocate with estimated capacity to reduce re-allocations
+	// Estimate: node.Events + 5 events per child call
+	capacity := len(node.Events) + len(node.SubCalls)*5
+	events := make([]DecodedEvent, 0, capacity)
 
 	events = append(events, node.Events...)
 

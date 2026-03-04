@@ -6,21 +6,11 @@ package visualizer
 import (
 	"os"
 
+	"github.com/dotandev/hintents/internal/terminal"
 	"github.com/mattn/go-isatty"
 )
 
-// ANSI SGR codes used for colorized output.
-const (
-	sgrReset   = "\033[0m"
-	sgrRed     = "\033[31m"
-	sgrGreen   = "\033[32m"
-	sgrYellow  = "\033[33m"
-	sgrBlue    = "\033[34m"
-	sgrMagenta = "\033[35m"
-	sgrCyan    = "\033[36m"
-	sgrDim     = "\033[2m"
-	sgrBold    = "\033[1m"
-)
+var defaultRenderer terminal.Renderer = terminal.NewANSIRenderer()
 
 // ColorEnabled reports whether ANSI color output should be used.
 func ColorEnabled() bool {
@@ -79,34 +69,22 @@ func ContractBoundary(fromContract, toContract string) string {
 
 // Success returns a success indicator.
 func Success() string {
-	if !ColorEnabled() {
-		return "[OK]"
-	}
-	return themeColors("success") + "[OK]" + sgrReset
+	return defaultRenderer.Success()
 }
 
 // Warning returns a warning indicator.
 func Warning() string {
-	if !ColorEnabled() {
-		return "[!]"
-	}
-	return themeColors("warning") + "[!]" + sgrReset
+	return defaultRenderer.Warning()
 }
 
 // Error returns an error indicator.
 func Error() string {
-	if !ColorEnabled() {
-		return "[X]"
-	}
-	return themeColors("error") + "[X]" + sgrReset
+	return defaultRenderer.Error()
 }
 
 // Info returns an info indicator.
 func Info() string {
-	if !ColorEnabled() {
-		return "[i]"
-	}
-	return themeColors("info") + "[i]" + sgrReset
+	return Colorize("[i]", "cyan")
 }
 
 // Symbol returns a symbol name rendered as ASCII markers.

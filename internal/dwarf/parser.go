@@ -28,14 +28,14 @@ var (
 
 // LocalVar represents a local variable at a specific program location
 type LocalVar struct {
-	Name         string      // Variable name (may be mangled)
-	DemangledName string    // Demangled name for display
-	Type         string      // Type name
-	Location     string      // DWARF location description
-	Value        interface{} // Computed value (if available)
-	Address      uint64      // Memory address (if applicable)
-	StartLine    int         // Source line where variable is in scope
-	EndLine      int         // Source line where variable goes out of scope
+	Name          string      // Variable name (may be mangled)
+	DemangledName string      // Demangled name for display
+	Type          string      // Type name
+	Location      string      // DWARF location description
+	Value         interface{} // Computed value (if available)
+	Address       uint64      // Memory address (if applicable)
+	StartLine     int         // Source line where variable is in scope
+	EndLine       int         // Source line where variable goes out of scope
 }
 
 // SubprogramInfo represents a function/subprogram's debug information
@@ -109,26 +109,7 @@ func NewParser(data []byte) (*Parser, error) {
 
 // parseWASM parses DWARF info from a WASM binary
 func parseWASM(data []byte) (*Parser, error) {
-	// For WASM, we need to look for custom sections starting with ".debug_"
-	// WASM doesn't have native DWARF support, but compilers often embed
-	// DWARF info as custom sections
-	
-	// Try to find debug sections in WASM
 	sections := parseWASMSections(data)
-	
-	var dwarfData *dwarf.Data
-	var err error
-	
-	// Look for .debug_info section
-	if infoSection, ok := sections[".debug_info"]; ok {
-		abbrevSection := sections[".debug_abbrev"]
-		lineSection := sections[".debug_line"]
-		strSection := sections[".debug_str"]
-		dwarfData, err = dwarf.New(abbrevSection, nil, nil, infoSection, lineSection, nil, nil, strSection)
-		if err != nil {
-			// Fall back without optional sections
-			dwarfData, err = dwarf.New(abbrevSection, nil, nil, infoSection, nil, nil, nil, nil)
-		}
 
 	infoSec, ok := sections[".debug_info"]
 	if !ok || len(infoSec) == 0 {
@@ -499,7 +480,6 @@ func (p *Parser) FindLocalVarsAt(addr uint64) ([]LocalVar, error) {
 	// Filter variables that are in scope at this address
 	var inScope []LocalVar
 	for _, v := range subprogram.LocalVariables {
-		if addr >= uint64(v.StartLine) { // Simplified check
 		if addr >= uint64(v.StartLine) {
 			inScope = append(inScope, v)
 		}
@@ -586,6 +566,7 @@ func (p *Parser) findLineForAddr(lr *dwarf.LineReader, addr uint64) *SourceLocat
 //	0x03  DW_OP_addr          – followed by a target-address-sized literal
 //	0x9f  DW_OP_stack_value   – the value is the top of the expression stack
 //	0x00  (no-op / terminator in some older encodings)
+//
 // DWARF location expression opcodes (DW_OP_*) used in formatLocation.
 // These are defined in the DWARF spec and are not exported by debug/dwarf.
 const (
@@ -628,228 +609,142 @@ func nameDemangle(name string) string {
 	return name
 }
 
-// HasDebugInfo returns true if the binary contains DWARF debug information
-func (p *Parser) HasDebugInfo() bool {
-	return p.data != nil
-}
-
-// BinaryType returns the type of binary being parsed
-func (p *Parser) BinaryType() string {
-	return p.binaryType
-}
-
-// InlinedSubroutineInfo represents a compiler-inlined function instance as
-// recorded by DW_TAG_inlined_subroutine in the DWARF debug info.
-//
-// When a compiler inlines a function it does not emit a new call frame;
-// instead it inserts a DW_TAG_inlined_subroutine child inside the caller's
-// DW_TAG_subprogram.  The child carries the original function identity via
-// DW_AT_abstract_origin and the call-site coordinates (file/line/column)
-// inside the caller via DW_AT_call_file / DW_AT_call_line / DW_AT_call_column.
-//
-// Without handling this, a fault inside inlined code appears as if the
-// caller itself crashed, misleading the developer.
+// InlinedSubroutineInfo represents an inlined subroutine in the DWARF tree.
 type InlinedSubroutineInfo struct {
-	// AbstractOrigin is the DWARF offset of the abstract function definition
-	// that was inlined (i.e. the original DW_TAG_subprogram).
-	AbstractOrigin dwarf.Offset
-	// Name is the name of the inlined function, resolved from AbstractOrigin.
-	Name string
-	// DemangledName is the demangled / human-readable function name.
-	DemangledName string
-	// CallSite is the location inside the caller where the inlining occurred.
-	// This is where you should point the developer when reporting the fault.
-	CallSite SourceLocation
-	// InlinedLocation is the location inside the inlined function's own source
-	// where the fault actually occurred.
-	InlinedLocation SourceLocation
-	// LowPC / HighPC are the address range covered by the inlined body.
-	LowPC  uint64
-	HighPC uint64
+	Name            string         // Function name
+	DemangledName   string         // Demangled function name
+	CallSite        SourceLocation // Where the call was written in the caller's source
+	InlinedLocation SourceLocation // Source location inside the inlined body
+	LowPC           uint64         // Start address of the inlined code
+	HighPC          uint64         // End address of the inlined code
 }
 
-// GetInlinedSubroutines returns all inlined subroutine entries that are
-// children of the subprogram at parentOffset, together with the resolved
-// abstract-origin name information.
-//
-// The caller should use the returned slice to walk the inlined chain from
-// outermost (the concrete subprogram) to innermost (the leaf inlined body)
-// when presenting a fault location to the developer.
-func (p *Parser) GetInlinedSubroutines(parentOffset dwarf.Offset) ([]InlinedSubroutineInfo, error) {
+// GetInlinedSubroutines returns all inlined subroutines found inside the
+// subprogram at the given DWARF offset.  When no inlined subroutines exist
+// an empty (non-nil) slice is returned.
+func (p *Parser) GetInlinedSubroutines(spOffset dwarf.Offset) ([]InlinedSubroutineInfo, error) {
 	if p.data == nil {
 		return nil, ErrNoDebugInfo
 	}
 
 	reader := p.data.Reader()
-	reader.Seek(parentOffset)
+	reader.Seek(spOffset)
 
-	// Skip the parent entry itself.
-	parent, err := reader.Next()
-	if err != nil || parent == nil {
-		return nil, fmt.Errorf("parent entry not found at offset 0x%x", parentOffset)
+	// Skip the subprogram entry itself.
+	if _, err := reader.Next(); err != nil {
+		return nil, err
 	}
 
 	var result []InlinedSubroutineInfo
-
 	for {
 		entry, err := reader.Next()
 		if err != nil || entry == nil {
 			break
 		}
-		// A zero-length entry marks the end of the parent's children.
 		if entry.Tag == 0 {
 			break
 		}
-		if entry.Tag != dwarf.TagInlinedSubroutine {
-			continue
-		}
 
-		info := InlinedSubroutineInfo{}
+		if entry.Tag == dwarf.TagInlinedSubroutine {
+			info := InlinedSubroutineInfo{}
 
-		// PC range
-		if lowPC, ok := entry.Val(dwarf.AttrLowpc).(uint64); ok {
-			info.LowPC = lowPC
-		}
-		if highPC, ok := entry.Val(dwarf.AttrHighpc).(uint64); ok {
-			info.HighPC = highPC
-		}
+			if name, ok := entry.Val(dwarf.AttrName).(string); ok {
+				info.Name = name
+			}
+			if demangled, ok := entry.Val(dwarf.AttrLinkageName).(string); ok {
+				info.DemangledName = demangled
+			} else {
+				info.DemangledName = nameDemangle(info.Name)
+			}
 
-		// Call-site coordinates inside the caller.
-		if callLine, ok := entry.Val(dwarf.AttrCallLine).(int64); ok {
-			info.CallSite.Line = int(callLine)
-		}
-		if callCol, ok := entry.Val(dwarf.AttrCallColumn).(int64); ok {
-			info.CallSite.Column = int(callCol)
-		}
-		if callFile, ok := entry.Val(dwarf.AttrCallFile).(int64); ok {
-			info.CallSite.File = p.resolveFileIndex(parentOffset, int(callFile))
-		}
+			if lowPC, ok := entry.Val(dwarf.AttrLowpc).(uint64); ok {
+				info.LowPC = lowPC
+			}
+			if highPC, ok := entry.Val(dwarf.AttrHighpc).(uint64); ok {
+				info.HighPC = highPC
+			}
 
-		// Resolve the abstract-origin reference to get the function name.
-		if originOffset, ok := entry.Val(dwarf.AttrAbstractOrigin).(dwarf.Offset); ok {
-			info.AbstractOrigin = originOffset
-			name, demangled, file, line := p.resolveAbstractOrigin(originOffset)
-			info.Name = name
-			info.DemangledName = demangled
-			info.InlinedLocation = SourceLocation{File: file, Line: line}
-		}
+			// Call site: where the call was written in the caller.
+			if line, ok := entry.Val(dwarf.AttrCallLine).(int64); ok {
+				info.CallSite.Line = int(line)
+			}
+			if col, ok := entry.Val(dwarf.AttrCallColumn).(int64); ok {
+				info.CallSite.Column = int(col)
+			}
+			if fileIdx, ok := entry.Val(dwarf.AttrCallFile).(int64); ok {
+				info.CallSite.File = p.resolveFileIndex(spOffset, int(fileIdx))
+			}
 
-		result = append(result, info)
+			// Inlined location: the body's own source location.
+			if line, ok := entry.Val(dwarf.AttrDeclLine).(int64); ok {
+				info.InlinedLocation.Line = int(line)
+			}
+			if col, ok := entry.Val(dwarf.AttrDeclColumn).(int64); ok {
+				info.InlinedLocation.Column = int(col)
+			}
+			if file, ok := entry.Val(dwarf.AttrDeclFile).(int64); ok {
+				info.InlinedLocation.File = p.resolveFileIndex(spOffset, int(file))
+			}
+
+			result = append(result, info)
+		}
 	}
 
+	if result == nil {
+		result = []InlinedSubroutineInfo{}
+	}
 	return result, nil
 }
 
-// ResolveInlinedChain walks the DWARF tree to find the innermost inlined
-// function body that contains addr.  It returns the chain from outermost
-// concrete subprogram to innermost inlined body, innermost last.
-//
-// If addr does not fall inside any inlined subroutine the returned slice is
-// empty and the caller should use the concrete subprogram location directly.
+// ResolveInlinedChain resolves the inlined subroutine chain for a given
+// instruction address.  It finds the containing subprogram and then returns
+// all inlined subroutines whose address range covers addr, ordered from
+// outermost to innermost.
 func (p *Parser) ResolveInlinedChain(addr uint64) ([]InlinedSubroutineInfo, error) {
 	if p.data == nil {
 		return nil, ErrNoDebugInfo
 	}
 
-	subprograms, err := p.GetSubprograms()
+	// Find the subprogram that contains addr.
+	sp, err := p.FindSubprogramAt(addr)
+	if err != nil {
+		// No subprogram contains this address; return empty, no error.
+		return []InlinedSubroutineInfo{}, nil
+	}
+
+	// We need to find the subprogram's offset in the DWARF tree so we can
+	// look for TagInlinedSubroutine children.
+	spOffset := p.findSubprogramOffset(sp.Name)
+	if spOffset == 0 {
+		return []InlinedSubroutineInfo{}, nil
+	}
+
+	all, err := p.GetInlinedSubroutines(spOffset)
 	if err != nil {
 		return nil, err
 	}
 
-	for i := range subprograms {
-		sp := &subprograms[i]
-		if addr < sp.LowPC || addr >= sp.HighPC {
-			continue
+	// Filter to those whose address range covers the queried address.
+	var chain []InlinedSubroutineInfo
+	for _, il := range all {
+		if addr >= il.LowPC && addr < il.HighPC {
+			chain = append(chain, il)
 		}
-		// addr is inside this subprogram; now check for inlined children.
-		inlined, err := p.GetInlinedSubroutines(p.findSubprogramOffset(sp.Name))
-		if err != nil {
-			// No inlined info available; return empty slice.
-			return nil, nil
-		}
-		// Filter to those containing addr and return them in order.
-		var chain []InlinedSubroutineInfo
-		for _, il := range inlined {
-			if addr >= il.LowPC && addr < il.HighPC {
-				chain = append(chain, il)
-			}
-		}
-		return chain, nil
 	}
 
-	return nil, nil
+	if chain == nil {
+		chain = []InlinedSubroutineInfo{}
+	}
+	return chain, nil
 }
 
-// resolveAbstractOrigin looks up a DW_TAG_subprogram (or DW_TAG_inlined_subroutine)
-// entry by its DWARF offset and returns its name, demangled name, file, and line.
-func (p *Parser) resolveAbstractOrigin(offset dwarf.Offset) (name, demangled, file string, line int) {
-	reader := p.data.Reader()
-	reader.Seek(offset)
-
-	entry, err := reader.Next()
-	if err != nil || entry == nil {
-		return
-	}
-
-	if n, ok := entry.Val(dwarf.AttrName).(string); ok {
-		name = n
-	}
-	if ln, ok := entry.Val(dwarf.AttrLinkageName).(string); ok {
-		demangled = ln
-	} else {
-		demangled = nameDemangle(name)
-	}
-	if f, ok := entry.Val(dwarf.AttrDeclFile).(string); ok {
-		file = f
-	}
-	if l, ok := entry.Val(dwarf.AttrDeclLine).(int64); ok {
-		line = int(l)
-	}
-	return
-}
-
-// resolveFileIndex resolves a 1-based file table index from the DW_AT_call_file
-// attribute.  It looks up the line-number program for the compile unit that
-// contains parentOffset and returns the corresponding filename.
-//
-// If the file table cannot be found the empty string is returned, which is
-// handled gracefully by callers.
-func (p *Parser) resolveFileIndex(_ dwarf.Offset, fileIndex int) string {
-	if fileIndex <= 0 {
-		return ""
-	}
-	reader := p.data.Reader()
-	// Walk compile-unit entries only.
-	for {
-		entry, err := reader.Next()
-		if err != nil || entry == nil {
-			break
-		}
-		if entry.Tag != dwarf.TagCompileUnit {
-			reader.SkipChildren()
-			continue
-		}
-		lr, err := p.data.LineReader(entry)
-		if err != nil || lr == nil {
-			reader.SkipChildren()
-			continue
-		}
-		files := lr.Files()
-		idx := fileIndex - 1 // DW_AT_call_file is 1-based
-		if idx >= 0 && idx < len(files) && files[idx] != nil {
-			return files[idx].Name
-		}
-		reader.SkipChildren()
-	}
-	return ""
-}
-
-// findSubprogramOffset returns the DWARF offset of the first subprogram entry
-// whose name matches the supplied name.  Returns 0 if not found.
+// findSubprogramOffset locates the DWARF offset of the subprogram entry
+// with the given name.  Returns 0 when not found or when data is nil.
 func (p *Parser) findSubprogramOffset(name string) dwarf.Offset {
 	if p.data == nil {
 		return 0
 	}
+
 	reader := p.data.Reader()
 	for {
 		entry, err := reader.Next()
@@ -861,10 +756,51 @@ func (p *Parser) findSubprogramOffset(name string) dwarf.Offset {
 				return entry.Offset
 			}
 		}
-		// Skip into children only for compile units; skip over everything else.
-		if entry.Tag != dwarf.TagCompileUnit {
-			reader.SkipChildren()
-		}
 	}
 	return 0
+}
+
+// resolveFileIndex resolves a DWARF file-table index to a filename.
+// cuOffset should be the offset of the compile unit that contains the file
+// table.  Returns an empty string when data is nil, the index is invalid,
+// or the file table cannot be read.
+func (p *Parser) resolveFileIndex(cuOffset dwarf.Offset, fileIndex int) string {
+	if p.data == nil || fileIndex <= 0 {
+		return ""
+	}
+
+	// Walk from the beginning to find the compile unit that encloses cuOffset.
+	reader := p.data.Reader()
+	for {
+		entry, err := reader.Next()
+		if err != nil || entry == nil {
+			break
+		}
+		if entry.Tag == dwarf.TagCompileUnit && entry.Offset <= cuOffset {
+			lr, err := p.data.LineReader(entry)
+			if err != nil || lr == nil {
+				reader.SkipChildren()
+				continue
+			}
+			files := lr.Files()
+			// DWARF file indices are 1-based; files[0] is typically a
+			// placeholder.  Guard against out-of-range.
+			if fileIndex < len(files) && files[fileIndex] != nil {
+				return files[fileIndex].Name
+			}
+			return ""
+		}
+		reader.SkipChildren()
+	}
+	return ""
+}
+
+// HasDebugInfo returns true if the binary contains DWARF debug information
+func (p *Parser) HasDebugInfo() bool {
+	return p.data != nil
+}
+
+// BinaryType returns the type of binary being parsed
+func (p *Parser) BinaryType() string {
+	return p.binaryType
 }

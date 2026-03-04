@@ -26,6 +26,7 @@ type clientBuilder struct {
 	config          *NetworkConfig
 	httpClient      *http.Client
 	requestTimeout  time.Duration
+	middlewares     []Middleware
 }
 
 const defaultHTTPTimeout = 15 * time.Second
@@ -145,6 +146,13 @@ func WithMethodTelemetry(telemetry MethodTelemetry) ClientOption {
 	}
 }
 
+func WithMiddleware(middlewares ...Middleware) ClientOption {
+	return func(b *clientBuilder) error {
+		b.middlewares = append(b.middlewares, middlewares...)
+		return nil
+	}
+}
+
 func NewClient(opts ...ClientOption) (*Client, error) {
 	builder := newBuilder()
 
@@ -221,7 +229,7 @@ func (b *clientBuilder) build() (*Client, error) {
 	}
 
 	if b.httpClient == nil {
-		b.httpClient = createHTTPClient(b.token, b.requestTimeout)
+		b.httpClient = createHTTPClient(b.token, b.requestTimeout, b.middlewares...)
 	}
 
 	if len(b.altURLs) == 0 && b.horizonURL != "" {
@@ -252,5 +260,6 @@ func (b *clientBuilder) build() (*Client, error) {
 		methodTelemetry: b.methodTelemetry,
 		failures:        make(map[string]int),
 		lastFailure:     make(map[string]time.Time),
+		middlewares:     b.middlewares,
 	}, nil
 }

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct GitRepository {
     pub remote_url: String,
     pub branch: String,
@@ -29,13 +30,13 @@ impl GitRepository {
 
     fn find_git_root(start_path: &Path) -> Option<PathBuf> {
         let mut current = start_path.to_path_buf();
-        
+
         loop {
             let git_dir = current.join(".git");
             if git_dir.exists() {
                 return Some(current);
             }
-            
+
             if !current.pop() {
                 return None;
             }
@@ -115,19 +116,16 @@ impl GitRepository {
         }
 
         let relative_path = self.make_relative_path(file_path)?;
-        
+
         Some(format!(
             "{}/blob/{}/{}#L{}",
-            self.remote_url,
-            self.commit_hash,
-            relative_path,
-            line
+            self.remote_url, self.commit_hash, relative_path, line
         ))
     }
 
     fn make_relative_path(&self, file_path: &str) -> Option<String> {
         let path = Path::new(file_path);
-        
+
         if path.is_absolute() {
             path.strip_prefix(&self.root_path)
                 .ok()
@@ -180,7 +178,10 @@ mod tests {
         let link = repo.generate_file_link("src/token.rs", 45);
         assert_eq!(
             link,
-            Some("https://github.com/dotandev/hintents/blob/abc123def456/src/token.rs#L45".to_string())
+            Some(
+                "https://github.com/dotandev/hintents/blob/abc123def456/src/token.rs#L45"
+                    .to_string()
+            )
         );
     }
 }

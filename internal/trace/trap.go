@@ -31,12 +31,12 @@ const (
 
 // TrapInfo contains information about a trap that occurred during execution
 type TrapInfo struct {
-	Type           TrapType               // Type of trap
-	Message        string                 // Error message
-	SourceLocation *dwarf.SourceLocation  // Source location if available
-	LocalVars      []LocalVarInfo         // Local variables at trap point
-	Function       string                 // Function where trap occurred
-	CallStack      []string               // Call stack at trap point
+	Type           TrapType              // Type of trap
+	Message        string                // Error message
+	SourceLocation *dwarf.SourceLocation // Source location if available
+	LocalVars      []LocalVarInfo        // Local variables at trap point
+	Function       string                // Function where trap occurred
+	CallStack      []string              // Call stack at trap point
 	// InlinedChain holds the resolved inlined-subroutine chain from outermost
 	// to innermost when the fault occurred inside compiler-inlined code.
 	// When non-empty the innermost entry describes the actual fault site and
@@ -56,12 +56,6 @@ type InlinedFrame struct {
 	// InlinedAt is the location inside the inlined function's own source
 	// where execution was when the fault occurred.
 	InlinedAt dwarf.SourceLocation
-	Type           TrapType              // Type of trap
-	Message        string                // Error message
-	SourceLocation *dwarf.SourceLocation // Source location if available
-	LocalVars      []LocalVarInfo        // Local variables at trap point
-	Function       string                // Function where trap occurred
-	CallStack      []string              // Call stack at trap point
 }
 
 // LocalVarInfo represents a local variable with its value at trap time

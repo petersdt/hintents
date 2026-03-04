@@ -244,8 +244,8 @@ func TestEliminate_SingleDeadFunction(t *testing.T) {
 	wasm := newTestModule().
 		addFuncType().
 		addFunction(0, []byte{0x10, 0x01}). // func 0: call func 1
-		addFunction(0, []byte{0x01}).        // func 1: nop
-		addFunction(0, []byte{0x01}).        // func 2: nop (dead)
+		addFunction(0, []byte{0x01}).       // func 1: nop
+		addFunction(0, []byte{0x01}).       // func 2: nop (dead)
 		addExport("main", 0).
 		build()
 
@@ -266,8 +266,8 @@ func TestEliminate_ChainedCalls(t *testing.T) {
 		addFuncType().
 		addFunction(0, []byte{0x10, 0x01}). // func 0: call func 1
 		addFunction(0, []byte{0x10, 0x02}). // func 1: call func 2
-		addFunction(0, []byte{0x01}).        // func 2: nop
-		addFunction(0, []byte{0x01}).        // func 3: nop (dead)
+		addFunction(0, []byte{0x01}).       // func 2: nop
+		addFunction(0, []byte{0x01}).       // func 3: nop (dead)
 		addExport("main", 0).
 		build()
 
@@ -351,7 +351,7 @@ func TestEliminate_ImportedFunctionCalls(t *testing.T) {
 		addFuncType().
 		addFuncImport("env", "log", 0).
 		addFunction(0, []byte{0x10, 0x00}). // func 1 (local 0): call import func 0
-		addFunction(0, []byte{0x01}).        // func 2 (local 1): nop (dead)
+		addFunction(0, []byte{0x01}).       // func 2 (local 1): nop (dead)
 		addExport("main", 1).
 		build()
 
@@ -374,8 +374,8 @@ func TestEliminate_IndexRewriting(t *testing.T) {
 	wasm := newTestModule().
 		addFuncType().
 		addFunction(0, []byte{0x10, 0x02}). // func 0: call func 2
-		addFunction(0, []byte{0x01}).        // func 1: nop (dead)
-		addFunction(0, []byte{0x01}).        // func 2: nop (kept)
+		addFunction(0, []byte{0x01}).       // func 1: nop (dead)
+		addFunction(0, []byte{0x01}).       // func 2: nop (kept)
 		addExport("main", 0).
 		build()
 
@@ -424,9 +424,9 @@ func TestEliminate_ExportReindexing(t *testing.T) {
 	// func 0 (dead), func 1 (exported as "main"), func 2 (exported as "helper").
 	wasm := newTestModule().
 		addFuncType().
-		addFunction(0, []byte{0x01}).        // func 0: nop (dead)
+		addFunction(0, []byte{0x01}).       // func 0: nop (dead)
 		addFunction(0, []byte{0x10, 0x02}). // func 1: call func 2
-		addFunction(0, []byte{0x01}).        // func 2: nop
+		addFunction(0, []byte{0x01}).       // func 2: nop
 		addExport("main", 1).
 		addExport("helper", 2).
 		build()
@@ -470,8 +470,8 @@ func TestEliminate_Idempotent(t *testing.T) {
 	wasm := newTestModule().
 		addFuncType().
 		addFunction(0, []byte{0x10, 0x01}). // func 0: call func 1
-		addFunction(0, []byte{0x01}).        // func 1: nop
-		addFunction(0, []byte{0x01}).        // func 2: nop (dead)
+		addFunction(0, []byte{0x01}).       // func 1: nop
+		addFunction(0, []byte{0x01}).       // func 2: nop (dead)
 		addExport("main", 0).
 		build()
 
@@ -499,7 +499,7 @@ func TestEliminate_Stats(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 4, stats.TotalFunctions)   // 1 import + 3 local
-	assert.Equal(t, 2, stats.RemovedFunctions)  // 2 dead locals
+	assert.Equal(t, 2, stats.RemovedFunctions) // 2 dead locals
 	assert.Equal(t, len(wasm), stats.OriginalSize)
 	assert.Equal(t, len(out), stats.OptimizedSize)
 	assert.Less(t, stats.OptimizedSize, stats.OriginalSize)
@@ -515,7 +515,7 @@ func TestScanCalls_MultipleCalls(t *testing.T) {
 		0x00,       // 0 local declarations
 		0x10, 0x03, // call 3
 		0x10, 0x07, // call 7
-		0x0b,       // end
+		0x0b, // end
 	}
 	targets := scanCalls(body)
 	assert.True(t, targets[3])

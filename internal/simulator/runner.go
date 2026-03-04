@@ -19,6 +19,7 @@ import (
 	"github.com/dotandev/hintents/internal/errors"
 	"github.com/dotandev/hintents/internal/ipc"
 	"github.com/dotandev/hintents/internal/logger"
+	"github.com/dotandev/hintents/internal/metrics"
 )
 
 // Runner handles the execution of the Rust simulator binary
@@ -191,6 +192,12 @@ func getSimulatorCoverageLCOVPath(req *SimulationRequest) *string {
 // -------------------- Execution --------------------
 
 func (r *Runner) Run(ctx context.Context, req *SimulationRequest) (*SimulationResponse, error) {
+	success := false
+	defer func() {
+		// Record simulation execution metrics
+		metrics.RecordSimulationExecution(success)
+	}()
+
 	if req == nil {
 		return nil, errors.NewSimErrorMsg(errors.CodeValidationFailed, "simulation request cannot be nil")
 	}
@@ -243,8 +250,12 @@ func (r *Runner) Run(ctx context.Context, req *SimulationRequest) (*SimulationRe
 	cmd := exec.Command(r.BinaryPath)
 	prepareCommand(cmd)
 	cmd.Stdin = bytes.NewReader(inputBytes)
+	cmd.Env = simulatorEnv()
 
-	var stdout, stderr bytes.Buffer
+	// Use limited-size buffers to prevent memory growth in daemon mode
+	// Set reasonable limits (10MB stdout, 1MB stderr) for typical simulation responses
+	stdout := limitedBuffer{Buffer: bytes.Buffer{}, limit: 10 * 1024 * 1024}
+	stderr := limitedBuffer{Buffer: bytes.Buffer{}, limit: 1 * 1024 * 1024}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -291,14 +302,29 @@ func (r *Runner) Run(ctx context.Context, req *SimulationRequest) (*SimulationRe
 		classified := (&ipc.Error{Code: resp.ErrorCode, Message: resp.Error}).ToErstError()
 		logger.Logger.Error("Simulator returned error",
 			"code", classified.Code,
-			"original", classified.OriginalError,
+			"original", classified.OrigErr,
 		)
 		return nil, classified
 	}
 
 	resp.ProtocolVersion = &proto.Version
+	success = true
 
 	return &resp, nil
+}
+
+// limitedBuffer wraps bytes.Buffer with a size limit to prevent memory leaks
+type limitedBuffer struct {
+	bytes.Buffer
+	limit int
+}
+
+func (lb *limitedBuffer) Write(p []byte) (n int, err error) {
+	if lb.Len()+len(p) > lb.limit {
+		// Buffer would exceed limit, discard the data
+		return len(p), nil
+	}
+	return lb.Buffer.Write(p)
 }
 
 func (r *Runner) Close() error {
@@ -379,4 +405,33 @@ func (r *Runner) applyProtocolConfig(req *SimulationRequest, proto *Protocol) er
 	}
 
 	return nil
+}
+
+// simulatorEnv builds the environment variable list for the simulator subprocess.
+// It inherits the current process environment and ensures that RUST_LOG is set
+// to match ERST_LOG_LEVEL so both the Go and Rust sides honour the same level.
+func simulatorEnv() []string {
+	env := os.Environ()
+
+	erstLevel := os.Getenv("ERST_LOG_LEVEL")
+	if erstLevel == "" {
+		return env
+	}
+
+	rustFilter := logger.RustLogFilter(erstLevel)
+
+	// Replace an existing RUST_LOG entry or append a new one.
+	found := false
+	for i, kv := range env {
+		if len(kv) > 9 && kv[:9] == "RUST_LOG=" {
+			env[i] = "RUST_LOG=" + rustFilter
+			found = true
+			break
+		}
+	}
+	if !found {
+		env = append(env, "RUST_LOG="+rustFilter)
+	}
+
+	return env
 }

@@ -137,7 +137,6 @@ export function registerAuditCommands(program: Command): void {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`[FAIL] audit render failed: ${msg}`);
-        process.exit(1);
       }
     });
 

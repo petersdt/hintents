@@ -18,9 +18,10 @@ import (
 
 // Global flag variables
 var (
-	TimestampFlag int64
-	WindowFlag    int64
-	ProfileFlag   bool
+	TimestampFlag     int64
+	WindowFlag        int64
+	ProfileFlag       bool
+	ProfileFormatFlag string
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -162,7 +163,14 @@ func init() {
 		&ProfileFlag,
 		"profile",
 		false,
-		"Enable CPU/Memory profiling and generate a flamegraph SVG",
+		"Enable CPU/Memory profiling and generate a flamegraph",
+	)
+
+	rootCmd.PersistentFlags().StringVar(
+		&ProfileFormatFlag,
+		"profile-format",
+		"html",
+		"Flamegraph export format: 'html' (interactive) or 'svg' (raw)",
 	)
 
 	// Define command groups for better organization

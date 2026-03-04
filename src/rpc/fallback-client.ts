@@ -218,6 +218,76 @@ export class FallbackRPCClient {
     }
 
     /**
+     * Execute a batch of RPC requests in a single call.
+     * Protocol V2 feature - allows bundling multiple requests for efficiency.
+     */
+    async batchRequest<T = any>(
+        requests: Array<{ id: number | string; method: string; params?: any }>
+    ): Promise<T[]> {
+        const logger = getLogger();
+        
+        if (requests.length === 0) {
+            return [];
+        }
+
+        if (requests.length > 100) {
+            throw new Error('Maximum 100 requests per batch');
+        }
+
+        const batchPayload = requests.map(req => ({
+            jsonrpc: '2.0',
+            id: req.id,
+            method: req.method,
+            params: req.params,
+        }));
+
+        logger.verbose(LogCategory.RPC, `Batch request: ${requests.length} requests`);
+
+        const response = await this.request<T>('/rpc', {
+            method: 'POST',
+            data: batchPayload,
+        });
+
+        if (Array.isArray(response)) {
+            return response as T[];
+        }
+
+        return [response] as T[];
+    }
+
+    /**
+     * Execute multiple requests in parallel with a concurrency limit.
+     * Useful for fetching data from multiple endpoints efficiently.
+     */
+    async parallelRequests<T = any>(
+        requests: Array<{ path: string; options?: { method?: 'GET' | 'POST'; data?: any } }>,
+        concurrency: number = 5
+    ): Promise<T[]> {
+        const results: T[] = [];
+        const queue = [...requests];
+        const executing: Promise<void>[] = [];
+
+        const execute = async (req: { path: string; options?: { method?: 'GET' | 'POST'; data?: any } }, index: number) => {
+            const result = await this.request<T>(req.path, req.options);
+            results[index] = result;
+        };
+
+        for (const req of queue) {
+            const index = results.length;
+            const p = execute(req, index);
+            executing.push(p);
+
+            if (executing.length >= concurrency) {
+                await Promise.race(executing);
+                executing.splice(executing.findIndex(async (e) => (await e) === undefined), 1);
+            }
+        }
+
+        await Promise.all(executing);
+        return results;
+    }
+
+    /**
      * Update performance metrics for an endpoint
      */
     private updateMetrics(endpoint: RPCEndpoint, duration: number, success: boolean): void {
@@ -490,5 +560,107 @@ export class FallbackRPCClient {
         });
 
         await Promise.allSettled(checks);
+    }
+
+    // ===== Protocol V2 Type-Safe Methods =====
+
+    /**
+     * Get server health status (Protocol V2)
+     */
+    async getHealth(): Promise<{ status: string; currentProtocolVersion?: string }> {
+        return this.request('/', {
+            method: 'POST',
+            data: { jsonrpc: '2.0', id: 1, method: 'getHealth' }
+        });
+    }
+
+    /**
+     * Get latest ledger info (Protocol V2)
+     */
+    async getLatestLedger(): Promise<{ sequence: number; hash: string; closeTime: number }> {
+        return this.request('/', {
+            method: 'POST',
+            data: { jsonrpc: '2.0', id: 1, method: 'getLatestLedger' }
+        });
+    }
+
+    /**
+     * Get transaction by hash (Protocol V2)
+     */
+    async getTransaction(hash: string): Promise<any> {
+        return this.request('/', {
+            method: 'POST',
+            data: { jsonrpc: '2.0', id: 1, method: 'getTransaction', params: { hash } }
+        });
+    }
+
+    /**
+     * Simulate a transaction (Protocol V2)
+     */
+    async simulateTransaction(transactionXdr: string, enableDebug?: boolean): Promise<any> {
+        return this.request('/', {
+            method: 'POST',
+            data: {
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'simulateTransaction',
+                params: { transaction: transactionXdr, simulationConfig: { enableDebug } }
+            }
+        });
+    }
+
+    /**
+     * Send a transaction (Protocol V2)
+     */
+    async sendTransaction(transactionXdr: string): Promise<any> {
+        return this.request('/', {
+            method: 'POST',
+            data: { jsonrpc: '2.0', id: 1, method: 'sendTransaction', params: { transaction: transactionXdr } }
+        });
+    }
+
+    /**
+     * Get events (Protocol V2)
+     */
+    async getEvents(startLedger: number, filters?: any[], limit?: number): Promise<any> {
+        return this.request('/', {
+            method: 'POST',
+            data: {
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'getEvents',
+                params: { startLedger, filters, limit }
+            }
+        });
+    }
+
+    /**
+     * Get ledger entries (Protocol V2)
+     */
+    async getLedgerEntries(keys: string[]): Promise<any> {
+        return this.request('/', {
+            method: 'POST',
+            data: { jsonrpc: '2.0', id: 1, method: 'getLedgerEntries', params: { keys } }
+        });
+    }
+
+    /**
+     * Get network configuration (Protocol V2)
+     */
+    async getNetwork(): Promise<any> {
+        return this.request('/', {
+            method: 'POST',
+            data: { jsonrpc: '2.0', id: 1, method: 'getNetwork' }
+        });
+    }
+
+    /**
+     * Get fee stats (Protocol V2)
+     */
+    async getFeeStats(): Promise<any> {
+        return this.request('/', {
+            method: 'POST',
+            data: { jsonrpc: '2.0', id: 1, method: 'getFeeStats' }
+        });
     }
 }

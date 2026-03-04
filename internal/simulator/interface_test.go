@@ -7,6 +7,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dotandev/hintents/internal/errors"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,7 +27,7 @@ func TestNewRunnerInterface(t *testing.T) {
 	// but the interface structure is correct
 	if err != nil {
 		// Expected in test environment without erst-sim binary
-		assert.Contains(t, err.Error(), "erst-sim binary not found")
+		assert.True(t, errors.Is(err, errors.ErrSimulatorNotFound))
 	} else {
 		// If binary exists, verify interface is returned
 		assert.NotNil(t, runner)
