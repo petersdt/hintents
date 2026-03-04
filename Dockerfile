@@ -3,19 +3,30 @@ FROM --platform=$BUILDPLATFORM rust:alpine AS builder-rust
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
+ARG TARGETARCH
 
 WORKDIR /app/simulator
 
 # Install build dependencies for cross-compilation
-RUN apk add --no-cache musl-dev gcc
+# clang and lld are used as cross-linkers
+RUN apk add --no-cache musl-dev gcc clang lld
 
 # Copy Rust project files
 COPY simulator/Cargo.toml simulator/Cargo.lock ./
 COPY simulator/src ./src
 
 # Build release binary (statically linked by default on Alpine)
-# Rust automatically handles the target architecture
-RUN cargo build --release
+# We use cross-compilation if TARGETARCH is arm64 to keep build times fast
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+  rustup target add aarch64-unknown-linux-musl && \
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=clang \
+  RUSTFLAGS="-C link-arg=-fuse-ld=lld -C target-feature=+crt-static" \
+  cargo build --release --target aarch64-unknown-linux-musl && \
+  cp target/aarch64-unknown-linux-musl/release/simulator target/release/erst-sim; \
+  else \
+  cargo build --release && \
+  cp target/release/simulator target/release/erst-sim; \
+  fi
 
 # Stage 2: Build Go CLI
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder-go
