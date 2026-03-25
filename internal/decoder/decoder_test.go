@@ -61,7 +61,7 @@ func TestDecodeEvents(t *testing.T) {
 		createEvent(t, "A", false, true),
 	}
 
-	root, err := DecodeEvents(events)
+	root, err := DecodeEvents(events, 0)
 	require.NoError(t, err)
 
 	assert.Equal(t, "TOP_LEVEL", root.Function)
@@ -83,6 +83,35 @@ func TestDecodeEvents(t *testing.T) {
 	assert.Len(t, nodeB.Events, 3)
 }
 
+func TestMaxDepth(t *testing.T) {
+	// A calls B, B calls C, C returns, B returns, A returns
+	// Max depth 1: Should truncate at B (A is depth 1)
+	events := []string{
+		createEvent(t, "A", true, false),
+		createEvent(t, "B", true, false),
+		createEvent(t, "C", true, false),
+		createEvent(t, "C", false, true),
+		createEvent(t, "B", false, true),
+		createEvent(t, "A", false, true),
+	}
+
+	root, err := DecodeEvents(events, 1)
+	require.NoError(t, err)
+
+	require.Len(t, root.SubCalls, 1)
+	nodeA := root.SubCalls[0]
+	assert.Equal(t, "A", nodeA.Function)
+
+	// B should be in Events as a warning or regular event if we reached limit
+	// In my implementation, if currentDepth >= maxDepth, we skip adding child.
+	// For A, currentDepth was 0, maxDepth is 1. 0 < 1, so A is added.
+	// After A is added, currentDepth is 1.
+	// For B, currentDepth is 1, maxDepth is 1. 1 >= 1, so B is skipped.
+	// A warning is added to A's Events.
+	require.Len(t, nodeA.SubCalls, 0)
+	assert.Contains(t, nodeA.Events[1].Data, "Max trace depth reached")
+}
+
 func TestUnbalanced(t *testing.T) {
 	// A calls B, B crashes (no return), A returns
 	events := []string{
@@ -91,7 +120,7 @@ func TestUnbalanced(t *testing.T) {
 		createEvent(t, "A", false, true),
 	}
 
-	root, err := DecodeEvents(events)
+	root, err := DecodeEvents(events, 0)
 	require.NoError(t, err)
 
 	nodeA := root.SubCalls[0]

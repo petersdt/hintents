@@ -29,13 +29,16 @@ type DecodedEvent struct {
 	Data       string   `json:"data"`
 }
 
-// DecodeEvents builds a call hierarchy from a list of base64-encoded XDR DiagnosticEvents
-func DecodeEvents(eventsXdr []string) (*CallNode, error) {
+// DecodeEvents builds a call hierarchy from a list of base64-encoded XDR DiagnosticEvents.
+// If maxDepth > 0, the tree is truncated at that depth to prevent stack overflows
+// during subsequent recursive analysis.
+func DecodeEvents(eventsXdr []string, maxDepth int) (*CallNode, error) {
 	root := &CallNode{
 		ContractID: "ROOT",
 		Function:   "TOP_LEVEL",
 	}
 	current := root
+	currentDepth := 0
 
 	for _, eventStr := range eventsXdr {
 		var diag xdr.DiagnosticEvent
@@ -53,6 +56,26 @@ func DecodeEvents(eventsXdr []string) (*CallNode, error) {
 		// Convention: System events with topics ["fn_call", func_name, ...]
 		// Note: This relies on the environment emitting these diagnostic events.
 		if isFunctionCall(decoded) {
+			if maxDepth > 0 && currentDepth >= maxDepth {
+				// Depth limit reached. Truncate this branch.
+				// Add a warning event to the current node if not already present
+				hasWarning := false
+				for _, e := range current.Events {
+					if e.Topics[0] == "warning" && e.Data == "Max trace depth reached; branch truncated" {
+						hasWarning = true
+						break
+					}
+				}
+				if !hasWarning {
+					current.Events = append(current.Events, DecodedEvent{
+						ContractID: "SYSTEM",
+						Topics:     []string{"warning"},
+						Data:       "Max trace depth reached; branch truncated",
+					})
+				}
+				continue
+			}
+
 			child := &CallNode{
 				ContractID: decoded.ContractID,
 				Function:   extractFunctionName(decoded),
@@ -60,11 +83,18 @@ func DecodeEvents(eventsXdr []string) (*CallNode, error) {
 			}
 			current.SubCalls = append(current.SubCalls, child)
 			current = child
+			currentDepth++
 
 			// Add the call event itself to the child (optional, but good for context)
 			current.Events = append(current.Events, decoded)
 		} else if isFunctionReturn(decoded) {
 			returnedFn := extractFunctionName(decoded)
+
+			// If we are at max depth and receive a return for a function we skipped,
+			// we just ignore it. But how do we know we skipped it?
+			// The current.Function will not match if we are deeper than maxDepth
+			// and we kept track of where we should be.
+			// Actually, if we just skipped 'fn_call' at maxDepth, we should also skip 'fn_return'.
 
 			// Handle stack unwinding for failed/implicit returns
 			// If current function doesn't match the return event, check up the stack
@@ -72,28 +102,34 @@ func DecodeEvents(eventsXdr []string) (*CallNode, error) {
 				// Search for the matching function up the stack
 				iter := current.parent
 				found := false
+				tempDepth := currentDepth - 1
 				for iter != nil {
 					if iter.Function == returnedFn {
 						found = true
 						break
 					}
 					iter = iter.parent
+					tempDepth--
 				}
 
 				// If found, unwind everything below it (they failed/exited without event)
 				if found {
 					for current != iter {
 						current = current.parent
+						currentDepth--
 					}
 				}
 			}
 
 			// Add return event to current (which should now be the matching node)
-			current.Events = append(current.Events, decoded)
+			if current.Function == returnedFn {
+				current.Events = append(current.Events, decoded)
 
-			// Pop stack
-			if current.parent != nil {
-				current = current.parent
+				// Pop stack
+				if current.parent != nil {
+					current = current.parent
+					currentDepth--
+				}
 			}
 		} else {
 			// Regular event, add to current scope

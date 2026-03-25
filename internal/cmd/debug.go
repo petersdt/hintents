@@ -587,8 +587,15 @@ Local WASM Replay Mode:
 		if len(lastSimResp.Events) > 0 {
 			suggestionEngine := decoder.NewSuggestionEngine()
 
+			// Load config to get MaxTraceDepth
+			cfg, _ := config.Load()
+			maxDepth := 50
+			if cfg != nil {
+				maxDepth = cfg.MaxTraceDepth
+			}
+
 			// Decode events for analysis
-			callTree, err := decoder.DecodeEvents(lastSimResp.Events)
+			callTree, err := decoder.DecodeEvents(lastSimResp.Events, maxDepth)
 			if err == nil && callTree != nil {
 				suggestions := suggestionEngine.AnalyzeCallTree(callTree)
 				if len(suggestions) > 0 {

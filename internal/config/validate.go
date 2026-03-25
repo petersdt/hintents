@@ -44,3 +44,17 @@ func (CrashReportingValidator) Validate(cfg *Config) error {
 	}
 	return nil
 }
+
+type MaxTraceDepthValidator struct{}
+
+func (MaxTraceDepthValidator) Validate(cfg *Config) error {
+	if cfg.MaxTraceDepth <= 0 {
+		return errors.WrapValidationError("max_trace_depth must be greater than 0")
+	}
+	if cfg.MaxTraceDepth > 1000 {
+		return errors.WrapValidationError(
+			fmt.Sprintf("max_trace_depth must be at most 1000, got %d", cfg.MaxTraceDepth),
+		)
+	}
+	return nil
+}

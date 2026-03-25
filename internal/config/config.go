@@ -69,6 +69,9 @@ type Config struct {
 	// Set via request_timeout in config or ERST_REQUEST_TIMEOUT.
 	// Defaults to 15 seconds.
 	RequestTimeout int `json:"request_timeout,omitempty"`
+	// MaxTraceDepth is the maximum depth of the call tree before it is truncated.
+	// Defaults to 50.
+	MaxTraceDepth int `json:"max_trace_depth,omitempty"`
 }
 
 // CustomNetworkConfig is defined in networks.go
@@ -122,6 +125,7 @@ func DefaultConfig() *Config {
 		LogLevel:       defaultConfig.LogLevel,
 		CachePath:      defaultConfig.CachePath,
 		RequestTimeout: defaultConfig.RequestTimeout,
+		MaxTraceDepth:  50,
 	}
 }
 
@@ -133,6 +137,7 @@ func NewConfig(rpcUrl string, network Network) *Config {
 		LogLevel:       defaultConfig.LogLevel,
 		CachePath:      defaultConfig.CachePath,
 		RequestTimeout: defaultConfig.RequestTimeout,
+		MaxTraceDepth:  50,
 	}
 }
 
@@ -149,6 +154,7 @@ func (c *Config) Validate() error {
 		SimulatorValidator{},
 		LogLevelValidator{},
 		TimeoutValidator{},
+		MaxTraceDepthValidator{},
 		CrashReportingValidator{},
 	}
 	for _, v := range validators {
@@ -297,6 +303,13 @@ func (envParser) Parse(cfg *Config) error {
 		}
 	}
 
+	if v := os.Getenv("ERST_MAX_TRACE_DEPTH"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err == nil && n > 0 {
+			cfg.MaxTraceDepth = n
+		}
+	}
+
 	switch strings.ToLower(os.Getenv("ERST_CRASH_REPORTING")) {
 	case "1", "true", "yes":
 		cfg.CrashReporting = true
@@ -411,6 +424,9 @@ func (configDefaultsAssigner) Apply(cfg *Config) {
 	}
 	if cfg.RequestTimeout == 0 {
 		cfg.RequestTimeout = defaultRequestTimeout
+	}
+	if cfg.MaxTraceDepth == 0 {
+		cfg.MaxTraceDepth = 50
 	}
 }
 
